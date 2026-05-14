@@ -4,7 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using autosalon.Data;
 using autosalon.Models;
 
-namespace YourProject.Controllers
+namespace autosalon.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
