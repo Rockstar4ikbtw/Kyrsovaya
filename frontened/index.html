@@ -1,0 +1,486 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AutoSalon</title>
+  <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;600;700;800;900&family=Barlow:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg:           #0d0d0c;
+      --bg2:          #090908;
+      --bg3:          #121210;
+      --surface:      #161614;
+      --surface2:     #1c1b18;
+      --surface3:     #222118;
+      --border:       rgba(255,255,255,0.055);
+      --border2:      rgba(255,255,255,0.10);
+      --border3:      rgba(255,255,255,0.16);
+      --accent:       #c0392b;
+      --accent2:      #e74c3c;
+      --accent-dark:  #96281b;
+      --accent-deep:  #6b1c14;
+      --accent-glow:  rgba(192,57,43,0.12);
+      --accent-glow2: rgba(192,57,43,0.22);
+      --accent-glow3: rgba(192,57,43,0.35);
+      --text:         #eeebe5;
+      --text2:        #aea9a1;
+      --muted:        rgba(255,255,255,0.32);
+      --shadow-sm:    0 1px 8px rgba(0,0,0,.35);
+      --shadow:       0 4px 20px rgba(0,0,0,.5);
+      --shadow-lg:    0 12px 50px rgba(0,0,0,.7);
+      --shadow-xl:    0 24px 80px rgba(0,0,0,.85);
+      --radius:       8px;
+      --radius-sm:    5px;
+    }
+
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Barlow', sans-serif;
+      min-height: 100vh;
+      overflow-x: hidden;
+      -webkit-font-smoothing: antialiased;
+    }
+    body::before {
+      content: '';
+      position: fixed; inset: 0; pointer-events: none; z-index: 0;
+      background-image: radial-gradient(rgba(255,255,255,0.025) 1px, transparent 1px);
+      background-size: 32px 32px;
+    }
+    body::after {
+      content: '';
+      position: fixed;
+      top: -200px; left: -200px;
+      width: 700px; height: 700px;
+      background: radial-gradient(circle, rgba(192,57,43,0.07) 0%, transparent 65%);
+      pointer-events: none; z-index: 0;
+    }
+
+    /* LOGIN */
+    #loginScreen {
+      position: fixed; inset: 0; display: flex; z-index: 999;
+      transition: opacity .5s cubic-bezier(.4,0,.2,1), transform .5s cubic-bezier(.4,0,.2,1);
+    }
+    #loginScreen.hidden { opacity: 0; pointer-events: none; transform: scale(.96); }
+
+    .login-left {
+      flex: 1;
+      background: linear-gradient(145deg, #1a0a07 0%, #2d0d0a 40%, #1a0a07 100%);
+      display: flex; flex-direction: column; justify-content: flex-end;
+      padding: 64px; position: relative; overflow: hidden;
+    }
+    .login-left::before {
+      content: '';
+      position: absolute; inset: 0;
+      background: repeating-linear-gradient(-45deg, transparent 0px, transparent 28px, rgba(255,255,255,0.012) 28px, rgba(255,255,255,0.012) 29px);
+      pointer-events: none;
+    }
+    .login-left-ghost {
+      position: absolute; top: 50%; left: 50%;
+      transform: translate(-50%, -50%);
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 22vw; font-weight: 900;
+      color: rgba(255,255,255,0.028);
+      letter-spacing: -4px; line-height: 0.85;
+      white-space: nowrap; pointer-events: none; user-select: none;
+    }
+    .login-left-bar { position: absolute; top: 0; left: 0; width: 4px; height: 100%; background: linear-gradient(to bottom, var(--accent2), var(--accent-dark)); }
+    .login-left-corner { position: absolute; top: 40px; right: 40px; width: 60px; height: 60px; border-top: 2px solid rgba(192,57,43,0.4); border-right: 2px solid rgba(192,57,43,0.4); border-radius: 0 4px 0 0; }
+    .login-left-corner2 { position: absolute; bottom: 40px; left: 40px; width: 60px; height: 60px; border-bottom: 2px solid rgba(192,57,43,0.4); border-left: 2px solid rgba(192,57,43,0.4); border-radius: 0 0 0 4px; }
+    .login-brand { font-family: 'Barlow Condensed', sans-serif; font-size: 72px; font-weight: 900; color: #fff; letter-spacing: 1px; line-height: .88; margin-bottom: 24px; position: relative; z-index: 1; }
+    .login-brand em { font-style: normal; color: var(--accent2); display: block; }
+    .login-tagline { font-size: 12px; font-weight: 600; letter-spacing: 4px; text-transform: uppercase; color: rgba(255,255,255,0.45); position: relative; z-index: 1; display: flex; align-items: center; gap: 10px; }
+    .login-tagline::before { content: ''; width: 28px; height: 2px; background: var(--accent); flex-shrink: 0; }
+    .login-features { display: flex; flex-direction: column; gap: 12px; margin-bottom: 40px; position: relative; z-index: 1; }
+    .login-feature { display: flex; align-items: center; gap: 12px; font-size: 13px; color: rgba(255,255,255,0.5); }
+    .login-feature-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); flex-shrink: 0; box-shadow: 0 0 8px rgba(192,57,43,0.6); }
+
+    .login-right {
+      width: 480px; background: var(--bg2);
+      display: flex; flex-direction: column;
+      height: 100vh; overflow-y: auto;
+      box-shadow: -20px 0 60px rgba(0,0,0,.6);
+      scrollbar-width: none; position: relative;
+    }
+    .login-right::-webkit-scrollbar { display: none; }
+    .login-right::before { content: ''; position: sticky; top: 0; left: 0; right: 0; height: 3px; display: block; flex-shrink: 0; background: linear-gradient(90deg, var(--accent) 0%, var(--accent2) 50%, transparent 100%); z-index: 10; }
+    .login-right-pad { padding: 52px 56px 64px; flex: 1; }
+
+    .auth-tabs { display: flex; gap: 0; margin-bottom: 36px; background: var(--surface); border-radius: var(--radius-sm); padding: 4px; border: 1px solid var(--border2); }
+    .auth-tab { flex: 1; background: none; border: none; font-family: 'Barlow Condensed', sans-serif; font-size: 13px; font-weight: 700; letter-spacing: 2.5px; text-transform: uppercase; color: var(--muted); padding: 9px 16px; border-radius: 4px; cursor: pointer; transition: all .22s; }
+    .auth-tab.active { background: var(--accent); color: #fff; box-shadow: 0 2px 12px rgba(192,57,43,0.4); }
+    .auth-panel { display: none; }
+    .auth-panel.active { display: block; }
+
+    .form-heading { font-family: 'Barlow Condensed', sans-serif; font-size: 32px; font-weight: 800; letter-spacing: 0.5px; margin-bottom: 28px; color: var(--text); line-height: 1.05; }
+    .form-heading span { color: var(--accent2); }
+
+    .field-group { margin-bottom: 14px; }
+    .field-group label { display: block; font-size: 10px; font-weight: 700; letter-spacing: 2.5px; text-transform: uppercase; color: var(--muted); margin-bottom: 7px; }
+    .field-group input, .field-group select { width: 100%; background: var(--surface); border: 1.5px solid var(--border2); color: var(--text); font-family: 'Barlow', sans-serif; font-size: 15px; font-weight: 400; padding: 11px 15px; outline: none; border-radius: var(--radius-sm); transition: border-color .2s, background .2s, box-shadow .2s; appearance: none; }
+    .field-group input:focus, .field-group select:focus { border-color: var(--accent); background: var(--surface2); box-shadow: 0 0 0 3px rgba(192,57,43,0.12); }
+    .field-group input::placeholder { color: rgba(255,255,255,0.2); }
+
+    .role-cards { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .role-card { border: 1.5px solid var(--border2); border-radius: var(--radius-sm); padding: 14px 14px 12px; cursor: pointer; transition: all .22s; background: var(--surface); display: block; position: relative; overflow: hidden; }
+    .role-card::after { content: ''; position: absolute; inset: 0; background: linear-gradient(135deg, rgba(192,57,43,0.1) 0%, transparent 60%); opacity: 0; transition: opacity .22s; border-radius: inherit; }
+    .role-card:hover { border-color: rgba(192,57,43,0.45); background: var(--surface2); transform: translateY(-1px); }
+    .role-card:hover::after { opacity: 1; }
+    .role-card.selected { border-color: var(--accent); background: var(--surface2); box-shadow: 0 0 0 3px rgba(192,57,43,0.18), 0 4px 16px rgba(0,0,0,.3); }
+    .role-card.selected::after { opacity: 1; }
+    .role-card input[type=radio] { display: none; }
+    .role-card-icon { width: 34px; height: 34px; border-radius: 8px; background: var(--accent-glow); border: 1px solid var(--accent-glow2); display: flex; align-items: center; justify-content: center; margin-bottom: 10px; transition: background .22s, border-color .22s; position: relative; z-index: 1; }
+    .role-card-icon svg { width: 16px; height: 16px; stroke: var(--accent); fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+    .role-card.selected .role-card-icon { background: rgba(192,57,43,0.25); border-color: rgba(192,57,43,0.4); }
+    .role-card-name { font-family: 'Barlow Condensed', sans-serif; font-size: 15px; font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase; color: var(--text2); transition: color .22s; position: relative; z-index: 1; }
+    .role-card-desc { font-size: 11px; color: var(--muted); margin-top: 2px; position: relative; z-index: 1; }
+    .role-card.selected .role-card-name { color: var(--accent2); }
+    .role-card-lock { position: absolute; top: 10px; right: 10px; opacity: 0.28; z-index: 1; }
+    .role-card-lock svg { width: 12px; height: 12px; stroke: var(--text2); fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+    .role-card.selected .role-card-lock { opacity: 0.75; }
+    .role-card.selected .role-card-lock svg { stroke: var(--accent); }
+
+    #roleConfirmWrap { overflow: hidden; max-height: 0; transition: max-height .32s cubic-bezier(.4,0,.2,1), opacity .32s, margin .32s; opacity: 0; margin-top: 0; }
+    #roleConfirmWrap.visible { max-height: 140px; opacity: 1; margin-top: 0; }
+    #roleConfirmWrap .field-group { margin-bottom: 0; }
+    .confirm-hint { font-size: 11px; color: var(--muted); margin-top: 8px; padding: 9px 13px; background: rgba(192,57,43,0.08); border: 1px solid rgba(192,57,43,0.2); border-radius: var(--radius-sm); display: flex; align-items: center; gap: 8px; }
+    .confirm-hint::before { content: '!'; width: 16px; height: 16px; border-radius: 50%; background: var(--accent); color: #fff; font-size: 10px; font-weight: 700; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+    .confirm-hint span { color: var(--accent2); font-weight: 600; }
+
+    .btn-primary { width: 100%; background: var(--accent); color: #fff; font-family: 'Barlow Condensed', sans-serif; font-size: 15px; font-weight: 700; letter-spacing: 3px; text-transform: uppercase; border: none; padding: 14px; border-radius: var(--radius-sm); cursor: pointer; transition: background .18s, transform .12s, box-shadow .18s; margin-top: 10px; position: relative; overflow: hidden; }
+    .btn-primary::before { content: ''; position: absolute; inset: 0; background: linear-gradient(135deg, rgba(255,255,255,0.1) 0%, transparent 60%); }
+    .btn-primary:hover { background: var(--accent2); box-shadow: 0 6px 24px rgba(192,57,43,0.45); transform: translateY(-1px); }
+    .btn-primary:active { transform: scale(.98) translateY(0); box-shadow: none; }
+
+    #loginError, #registerError { color: var(--accent2); font-size: 13px; margin-top: 12px; min-height: 18px; font-weight: 500; display: flex; align-items: center; gap: 6px; }
+    #loginError:not(:empty)::before, #registerError:not(:empty)::before { content: '×'; width: 18px; height: 18px; border-radius: 50%; background: rgba(231,76,60,0.18); display: inline-flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 700; flex-shrink: 0; }
+
+    /* APP */
+    #appShell { display: none; flex-direction: column; min-height: 100vh; position: relative; z-index: 1; }
+    #appShell.visible { display: flex; }
+
+    header { background: rgba(9,9,8,0.92); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); border-bottom: 1px solid var(--border); display: flex; align-items: center; padding: 0 40px; height: 64px; position: sticky; top: 0; z-index: 100; box-shadow: 0 1px 0 rgba(255,255,255,0.04), var(--shadow); }
+    header::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px; background: linear-gradient(90deg, var(--accent) 0%, var(--accent2) 40%, transparent 100%); }
+    .header-logo { font-family: 'Barlow Condensed', sans-serif; font-size: 24px; font-weight: 900; letter-spacing: 2px; color: #fff; margin-right: 40px; text-transform: uppercase; display: flex; align-items: center; gap: 2px; text-decoration: none; }
+    .header-logo-auto { color: var(--accent2); }
+    .header-logo-salon { color: rgba(255,255,255,0.85); }
+
+    nav { display: flex; gap: 1px; flex: 1; }
+    .nav-btn { background: none; border: none; font-family: 'Barlow Condensed', sans-serif; font-size: 13px; font-weight: 700; letter-spacing: 2px; text-transform: uppercase; color: var(--muted); padding: 8px 15px; border-radius: var(--radius-sm); cursor: pointer; transition: color .18s, background .18s; position: relative; }
+    .nav-btn:hover { color: var(--text); background: rgba(255,255,255,0.06); }
+    .nav-btn.active { color: var(--accent2); }
+    .nav-btn.active::after { content: ''; position: absolute; bottom: -21px; left: 50%; transform: translateX(-50%); width: calc(100% - 20px); height: 2px; background: var(--accent); border-radius: 2px 2px 0 0; }
+
+    .header-user { display: flex; align-items: center; gap: 16px; }
+    .user-info { text-align: right; }
+    .user-name { font-size: 14px; font-weight: 600; color: var(--text); line-height: 1.2; letter-spacing: 0.2px; }
+    .role-badge { display: inline-block; background: linear-gradient(135deg, var(--accent) 0%, var(--accent-dark) 100%); color: #fff; font-family: 'Barlow Condensed', sans-serif; font-size: 10px; font-weight: 700; letter-spacing: 2px; text-transform: uppercase; padding: 2px 8px; border-radius: 3px; box-shadow: 0 2px 8px rgba(192,57,43,0.3); }
+    .btn-logout { background: none; border: 1.5px solid var(--border2); color: var(--muted); font-family: 'Barlow Condensed', sans-serif; font-size: 12px; font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase; padding: 7px 16px; border-radius: var(--radius-sm); cursor: pointer; transition: all .18s; display: flex; align-items: center; gap: 7px; }
+    .btn-logout::before { content: ''; width: 14px; height: 14px; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%23c0392b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4'/%3E%3Cpolyline points='16 17 21 12 16 7'/%3E%3Cline x1='21' y1='12' x2='9' y2='12'/%3E%3C/svg%3E"); background-size: contain; background-repeat: no-repeat; opacity: 0; transition: opacity .18s; }
+    .btn-logout:hover { border-color: var(--accent); color: var(--accent); }
+    .btn-logout:hover::before { opacity: 1; }
+
+    main { flex: 1; padding: 40px 44px; max-width: 1480px; width: 100%; margin: 0 auto; }
+    .section { display: none; animation: fadeUp .28s cubic-bezier(.4,0,.2,1); }
+    .section.active { display: block; }
+    @keyframes fadeUp { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
+
+    .section-header { display: flex; align-items: flex-end; justify-content: space-between; margin-bottom: 32px; padding-bottom: 20px; border-bottom: 1px solid var(--border); position: relative; }
+    .section-header::after { content: ''; position: absolute; bottom: -1px; left: 0; width: 60px; height: 2px; background: var(--accent); border-radius: 2px; }
+    .section-title { font-family: 'Barlow Condensed', sans-serif; font-size: 46px; font-weight: 900; letter-spacing: 1px; text-transform: uppercase; color: var(--text); line-height: .95; }
+    .section-title span { color: var(--accent2); }
+    .section-sublabel { font-size: 10px; font-weight: 700; letter-spacing: 3.5px; text-transform: uppercase; color: var(--muted); margin-bottom: 6px; }
+
+    /* DASHBOARD */
+    .stats-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 44px; }
+    .stat-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 28px 30px; position: relative; overflow: hidden; cursor: default; transition: border-color .25s, background .25s, transform .25s, box-shadow .25s; display: flex; align-items: center; gap: 20px; }
+    .stat-card::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 1px; background: linear-gradient(90deg, transparent, rgba(255,255,255,0.08), transparent); }
+    .stat-card::after { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px; background: var(--accent); transform: scaleX(0); transform-origin: left; transition: transform .3s cubic-bezier(.4,0,.2,1); }
+    .stat-card:hover { background: var(--surface2); border-color: var(--border2); transform: translateY(-3px); box-shadow: 0 12px 36px rgba(0,0,0,.5), 0 0 0 1px rgba(192,57,43,0.1); }
+    .stat-card:hover::after { transform: scaleX(1); }
+    .stat-card.featured { grid-column: span 3; padding: 34px 44px; background: linear-gradient(135deg, #1a0907 0%, #120604 100%); border-color: rgba(192,57,43,0.2); justify-content: space-between; }
+    .stat-card.featured::after { transform: scaleX(1); opacity: 0.7; }
+    .stat-card.featured:hover { transform: translateY(-2px); }
+    .stat-card.wide { grid-column: span 2; padding: 30px 36px; }
+    .stat-icon { width: 52px; height: 52px; border-radius: 12px; background: var(--accent-glow); border: 1px solid var(--accent-glow2); display: flex; align-items: center; justify-content: center; flex-shrink: 0; transition: background .25s, transform .25s; }
+    .stat-card:hover .stat-icon { background: var(--accent-glow2); transform: scale(1.05); }
+    .stat-icon svg { color: var(--accent); }
+    .stat-icon.large { width: 64px; height: 64px; border-radius: 16px; background: rgba(192,57,43,0.15); border-color: rgba(192,57,43,0.3); }
+    .stat-body { flex: 1; min-width: 0; }
+    .stat-label { font-size: 10px; font-weight: 700; letter-spacing: 3px; text-transform: uppercase; color: var(--muted); margin-bottom: 8px; }
+    .stat-value { font-family: 'Barlow Condensed', sans-serif; font-size: 56px; font-weight: 900; line-height: 1; color: var(--text); letter-spacing: -2px; }
+    .stat-card.featured .stat-value { font-size: 80px; color: var(--accent2); letter-spacing: -3px; }
+    .stat-card.wide .stat-value { font-size: 54px; }
+    .stat-sublabel { font-size: 12px; color: var(--muted); margin-top: 6px; letter-spacing: 0.5px; }
+    .stat-divider { width: 1px; height: 56px; background: var(--border2); flex-shrink: 0; }
+    .stat-badge { font-family: 'Barlow Condensed', sans-serif; font-size: 10px; font-weight: 700; letter-spacing: 2px; text-transform: uppercase; padding: 6px 14px; background: rgba(192,57,43,0.15); color: var(--accent2); border-radius: 4px; border: 1px solid rgba(192,57,43,0.25); display: flex; align-items: center; gap: 6px; }
+    .stat-badge::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: var(--accent2); box-shadow: 0 0 6px var(--accent2); animation: pulse 2s infinite; }
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+
+    /* TABLE */
+    .table-wrap { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; box-shadow: var(--shadow); }
+    table { width: 100%; border-collapse: collapse; font-size: 14px; }
+    thead tr { background: var(--bg2); border-bottom: 1px solid var(--border2); }
+    th { text-align: left; padding: 14px 20px; font-family: 'Barlow Condensed', sans-serif; font-size: 11px; font-weight: 700; letter-spacing: 2.5px; text-transform: uppercase; color: var(--muted); }
+    th:first-child { color: rgba(255,255,255,0.18); }
+    tbody tr { border-bottom: 1px solid var(--border); transition: background .12s; }
+    tbody tr:last-child { border-bottom: none; }
+    tbody tr:hover { background: rgba(192,57,43,0.04); }
+    td { padding: 14px 20px; color: var(--text2); vertical-align: middle; }
+    td:first-child { font-family: 'Barlow Condensed', sans-serif; font-weight: 600; color: rgba(255,255,255,0.2); font-size: 13px; letter-spacing: 0.5px; }
+    .btn-sm { background: var(--surface2); border: 1px solid var(--border2); color: var(--text2); font-family: 'Barlow Condensed', sans-serif; font-size: 11px; font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase; padding: 5px 13px; border-radius: 4px; cursor: pointer; transition: all .15s; margin-right: 5px; }
+    .btn-sm:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-glow); transform: translateY(-1px); }
+    .btn-sm:active { transform: translateY(0); }
+    .btn-sm.danger:hover { border-color: #e74c3c; color: #e74c3c; background: rgba(231,76,60,0.08); }
+
+    .btn-add { background: var(--accent); color: #fff; font-family: 'Barlow Condensed', sans-serif; font-size: 13px; font-weight: 700; letter-spacing: 2px; text-transform: uppercase; border: none; padding: 10px 24px; border-radius: var(--radius-sm); cursor: pointer; transition: background .18s, transform .14s, box-shadow .18s; display: flex; align-items: center; gap: 8px; box-shadow: 0 4px 16px rgba(192,57,43,0.3); position: relative; overflow: hidden; }
+    .btn-add::before { content: ''; position: absolute; inset: 0; background: linear-gradient(135deg, rgba(255,255,255,0.12) 0%, transparent 60%); }
+    .btn-add-icon { width: 20px; height: 20px; border-radius: 50%; background: rgba(255,255,255,0.2); display: flex; align-items: center; justify-content: center; font-size: 16px; line-height: 1; flex-shrink: 0; }
+    .btn-add:hover { background: var(--accent2); box-shadow: 0 6px 24px rgba(192,57,43,0.5); transform: translateY(-1px); }
+    .btn-add:active { transform: scale(.98); }
+
+    /* MODAL */
+    .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.8); display: flex; align-items: center; justify-content: center; z-index: 500; backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); opacity: 0; pointer-events: none; transition: opacity .25s cubic-bezier(.4,0,.2,1); }
+    .modal-overlay.open { opacity: 1; pointer-events: all; }
+    .modal { background: var(--surface); border-radius: var(--radius); width: 520px; max-width: 95vw; max-height: 90vh; overflow-y: auto; padding: 44px 48px 48px; box-shadow: var(--shadow-xl); transform: translateY(20px) scale(.97); transition: transform .28s cubic-bezier(.34,1.2,.64,1); border: 1px solid var(--border2); position: relative; }
+    .modal::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px; background: linear-gradient(90deg, var(--accent) 0%, var(--accent2) 60%, transparent 100%); border-radius: var(--radius) var(--radius) 0 0; }
+    .modal-overlay.open .modal { transform: translateY(0) scale(1); }
+    .modal h2 { font-family: 'Barlow Condensed', sans-serif; font-size: 30px; font-weight: 900; letter-spacing: 1px; text-transform: uppercase; margin-bottom: 28px; color: var(--text); display: flex; align-items: center; gap: 12px; }
+    .modal h2::before { content: ''; width: 4px; height: 28px; background: var(--accent); border-radius: 2px; flex-shrink: 0; }
+    .modal .field-group { margin-bottom: 14px; }
+    .modal-actions { display: flex; gap: 12px; margin-top: 28px; }
+    .btn-cancel { flex: 1; background: var(--bg); border: 1px solid var(--border2); color: var(--muted); font-family: 'Barlow Condensed', sans-serif; font-size: 13px; font-weight: 700; letter-spacing: 2px; text-transform: uppercase; padding: 12px; border-radius: var(--radius-sm); cursor: pointer; transition: all .18s; }
+    .btn-cancel:hover { border-color: var(--border3); color: var(--text); }
+    .btn-save { flex: 2; background: var(--accent); color: #fff; font-family: 'Barlow Condensed', sans-serif; font-size: 13px; font-weight: 700; letter-spacing: 2.5px; text-transform: uppercase; border: none; padding: 12px; border-radius: var(--radius-sm); cursor: pointer; transition: background .18s, transform .14s, box-shadow .18s; position: relative; overflow: hidden; }
+    .btn-save::before { content: ''; position: absolute; inset: 0; background: linear-gradient(135deg, rgba(255,255,255,0.1) 0%, transparent 60%); }
+    .btn-save:hover { background: var(--accent2); box-shadow: 0 6px 20px rgba(192,57,43,0.4); transform: translateY(-1px); }
+
+    .loader { text-align: center; padding: 70px; color: var(--muted); font-family: 'Barlow Condensed', sans-serif; font-size: 12px; letter-spacing: 4px; text-transform: uppercase; display: flex; flex-direction: column; align-items: center; gap: 16px; }
+    .loader::before { content: ''; width: 32px; height: 32px; border-radius: 50%; border: 2px solid var(--border2); border-top-color: var(--accent); animation: spin .8s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .empty { text-align: center; padding: 70px; color: var(--muted); font-family: 'Barlow Condensed', sans-serif; font-size: 12px; letter-spacing: 4px; text-transform: uppercase; display: flex; flex-direction: column; align-items: center; gap: 12px; }
+    .empty::before { content: '○'; font-size: 32px; opacity: 0.3; line-height: 1; }
+
+    #toast { position: fixed; bottom: 36px; right: 36px; background: var(--surface2); color: var(--text); border-radius: var(--radius-sm); border: 1px solid var(--border2); border-left: 3px solid var(--accent); padding: 14px 22px 14px 18px; font-size: 14px; font-weight: 500; z-index: 9999; opacity: 0; pointer-events: none; transition: opacity .3s, transform .35s cubic-bezier(.34,1.2,.64,1); transform: translateY(16px) translateX(8px); box-shadow: var(--shadow-lg), 0 0 0 1px rgba(192,57,43,0.1); max-width: 320px; display: flex; align-items: center; gap: 10px; }
+    #toast::before { content: '✓'; width: 22px; height: 22px; border-radius: 50%; background: var(--accent); color: #fff; font-size: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+    #toast.error { border-left-color: #e74c3c; }
+    #toast.error::before { content: '!'; background: #e74c3c; }
+    #toast.show { opacity: 1; transform: translateY(0) translateX(0); pointer-events: all; }
+
+    ::-webkit-scrollbar { width: 5px; height: 5px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 99px; }
+    ::-webkit-scrollbar-thumb:hover { background: var(--accent); }
+
+    select { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%23888' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 14px center; padding-right: 36px !important; }
+    select option { background: #1a1916; }
+  </style>
+</head>
+<body>
+
+<!-- LOGIN -->
+<div id="loginScreen">
+  <div class="login-left">
+    <div class="login-left-bar"></div>
+    <div class="login-left-ghost">AS</div>
+    <div class="login-left-corner"></div>
+    <div class="login-left-corner2"></div>
+    <div class="login-brand">Auto<em>Salon</em></div>
+    <div class="login-tagline">Система управления автосалоном</div>
+  </div>
+
+  <div class="login-right">
+    <div class="login-right-pad">
+      <div class="auth-tabs">
+        <button class="auth-tab active" id="tabLogin" onclick="switchAuthTab('login')">Вход</button>
+        <button class="auth-tab" id="tabRegister" onclick="switchAuthTab('register')">Регистрация</button>
+      </div>
+
+      <div class="auth-panel active" id="panelLogin">
+        <div class="form-heading">Добро<br><span>пожаловать</span></div>
+        <div class="field-group"><label>Логин</label><input type="text" id="loginInput" placeholder="Введите логин" autocomplete="username" /></div>
+        <div class="field-group"><label>Пароль</label><input type="password" id="passwordInput" placeholder="Введите пароль" autocomplete="current-password" /></div>
+        <button class="btn-primary" id="loginBtn">Войти в систему</button>
+        <div id="loginError"></div>
+      </div>
+
+      <div class="auth-panel" id="panelRegister">
+        <div class="form-heading">Создать<br><span>аккаунт</span></div>
+        <div class="field-group"><label>Имя</label><input type="text" id="regName" placeholder="Ваше имя" /></div>
+        <div class="field-group"><label>Логин</label><input type="text" id="regLogin" placeholder="Придумайте логин" /></div>
+        <div class="field-group"><label>Пароль</label><input type="password" id="regPassword" placeholder="Придумайте пароль" /></div>
+        <div class="field-group"><label>Телефон</label><input type="text" id="regPhone" placeholder="+7 (999) 999-99-99" /></div>
+        <div class="field-group"><label>Email</label><input type="email" id="regEmail" placeholder="mail@example.com" /></div>
+        <div class="field-group">
+          <label>Роль</label>
+          <div class="role-cards" id="roleCards">
+            <label class="role-card selected" id="rc1" onclick="selectRole(1)">
+              <input type="radio" name="regRole" value="1" checked />
+              <div class="role-card-icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="7" r="4"/><path d="M5.5 20a8.38 8.38 0 0113 0"/></svg></div>
+              <div class="role-card-name">Пользователь</div>
+              <div class="role-card-desc">Базовый доступ</div>
+            </label>
+            <label class="role-card" id="rc2" onclick="selectRole(2)">
+              <input type="radio" name="regRole" value="2" />
+              <div class="role-card-lock"><svg viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg></div>
+              <div class="role-card-icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="7" r="4"/><path d="M5.5 20a8.38 8.38 0 0113 0"/><path d="M17 3l1.5 1.5L20 3"/><polyline points="17 9 19 11 23 7"/></svg></div>
+              <div class="role-card-name">Админ</div>
+              <div class="role-card-desc">Полный доступ</div>
+            </label>
+            <label class="role-card" id="rc3" onclick="selectRole(3)">
+              <input type="radio" name="regRole" value="3" />
+              <div class="role-card-lock"><svg viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg></div>
+              <div class="role-card-icon"><svg viewBox="0 0 24 24"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></svg></div>
+              <div class="role-card-name">Менеджер</div>
+              <div class="role-card-desc">Продажи и авто</div>
+            </label>
+            <label class="role-card" id="rc4" onclick="selectRole(4)">
+              <input type="radio" name="regRole" value="4" />
+              <div class="role-card-lock"><svg viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg></div>
+              <div class="role-card-icon"><svg viewBox="0 0 24 24"><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg></div>
+              <div class="role-card-name">Бухгалтер</div>
+              <div class="role-card-desc">Финансы</div>
+            </label>
+          </div>
+          <div id="roleConfirmWrap">
+            <div class="field-group" style="margin-top:12px">
+              <label>Код подтверждения</label>
+              <input type="password" id="roleConfirmCode" placeholder="Введите секретный код" autocomplete="off" />
+            </div>
+            <div class="confirm-hint">Роль <span id="confirmRoleName"></span> требует подтверждения</div>
+          </div>
+        </div>
+        <button class="btn-primary" id="registerBtn">Зарегистрироваться</button>
+        <div id="registerError"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- APP -->
+<div id="appShell">
+  <header>
+    <div class="header-logo">
+      <span class="header-logo-auto">Auto</span><span class="header-logo-salon">Salon</span>
+    </div>
+    <nav id="mainNav"></nav>
+    <div class="header-user">
+      <div class="user-info">
+        <div class="user-name" id="userName"></div>
+        <span id="roleBadge" class="role-badge"></span>
+      </div>
+      <button class="btn-logout" id="logoutBtn">Выход</button>
+    </div>
+  </header>
+
+  <main>
+    <div id="section-dashboard" class="section active">
+      <div class="section-header">
+        <div>
+          <div class="section-sublabel">Обзор системы</div>
+          <div class="section-title">Панель <span>управления</span></div>
+        </div>
+      </div>
+      <div class="stats-grid" id="statsGrid"></div>
+    </div>
+
+    <div id="section-cars" class="section">
+      <div class="section-header">
+        <div>
+          <div class="section-sublabel">Каталог</div>
+          <div class="section-title">Авто<span>мобили</span></div>
+        </div>
+        <button class="btn-add" id="addCarBtn"><span class="btn-add-icon">+</span>Добавить</button>
+      </div>
+      <div class="table-wrap"><table>
+        <thead><tr>
+          <th>#</th><th>Марка</th><th>Год</th><th>Цена</th><th>Состояние</th><th>Действия</th>
+        </tr></thead>
+        <tbody id="carsBody"></tbody>
+      </table></div>
+    </div>
+
+    <div id="section-users" class="section">
+      <div class="section-header">
+        <div>
+          <div class="section-sublabel">Управление</div>
+          <div class="section-title">Поль<span>зователи</span></div>
+        </div>
+        <button class="btn-add" id="addUserBtn"><span class="btn-add-icon">+</span>Добавить</button>
+      </div>
+      <div class="table-wrap"><table>
+        <thead><tr>
+          <th>#</th><th>Имя</th><th>Логин</th><th>Телефон</th><th>Email</th><th>Роль</th><th>Действия</th>
+        </tr></thead>
+        <tbody id="usersBody"></tbody>
+      </table></div>
+    </div>
+
+    <div id="section-sales" class="section">
+      <div class="section-header">
+        <div>
+          <div class="section-sublabel">Сделки</div>
+          <div class="section-title">Про<span>дажи</span></div>
+        </div>
+        <button class="btn-add" id="addSaleBtn"><span class="btn-add-icon">+</span>Добавить</button>
+      </div>
+      <div class="table-wrap"><table>
+        <thead><tr>
+          <th>#</th><th>Марка</th><th>Дата</th><th>Цена</th><th>Клиент ID</th><th>Менеджер ID</th><th>Действия</th>
+        </tr></thead>
+        <tbody id="salesBody"></tbody>
+      </table></div>
+    </div>
+
+    <div id="section-payments" class="section">
+      <div class="section-header">
+        <div>
+          <div class="section-sublabel">Финансы</div>
+          <div class="section-title">Пла<span>тежи</span></div>
+        </div>
+        <button class="btn-add" id="addPaymentBtn"><span class="btn-add-icon">+</span>Добавить</button>
+      </div>
+      <div class="table-wrap"><table>
+        <thead><tr>
+          <th>#</th><th>Сумма</th><th>Дата</th><th>Продажа ID</th><th>Действия</th>
+        </tr></thead>
+        <tbody id="paymentsBody"></tbody>
+      </table></div>
+    </div>
+
+    <div id="section-applications" class="section">
+      <div class="section-header">
+        <div>
+          <div class="section-sublabel">Входящие</div>
+          <div class="section-title">За<span>явки</span></div>
+        </div>
+        <button class="btn-add" id="addApplicationBtn"><span class="btn-add-icon">+</span>Добавить</button>
+      </div>
+      <div class="table-wrap"><table>
+        <thead><tr>
+          <th>#</th><th>Дата и время</th><th>Продажа ID</th><th>Действия</th>
+        </tr></thead>
+        <tbody id="applicationsBody"></tbody>
+      </table></div>
+    </div>
+  </main>
+</div>
+
+<div class="modal-overlay" id="modalOverlay">
+  <div class="modal">
+    <h2 id="modalTitle">Форма</h2>
+    <div id="modalFields"></div>
+    <div class="modal-actions">
+      <button class="btn-cancel" id="modalCancel">Отмена</button>
+      <button class="btn-save" id="modalSave">Сохранить</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+<script src="app.js"></script>
+</body>
+</html>
