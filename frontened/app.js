@@ -349,7 +349,6 @@ function openCarModal(car = null) {
 
   $('modalTitle').textContent = car ? 'Редактировать автомобиль' : 'Новый автомобиль';
 
-  // ✅ Год: из ISO-строки берём getFullYear(), чтобы не было смещения часового пояса
   const yearVal = car?.year
     ? new Date(car.year).getFullYear()
     : new Date().getFullYear();
@@ -358,21 +357,42 @@ function openCarModal(car = null) {
     <div class="field-group">
       <label>Марка / Модель</label>
       <input id="f_brand" value="${car?.brand ?? ''}" placeholder="Toyota Camry"/>
+      <div class="field-error" id="err_brand"></div>
     </div>
     <div class="field-group">
       <label>Год выпуска</label>
       <input id="f_year" type="number" min="1900" max="2100" value="${yearVal}"/>
+      <div class="field-error" id="err_year"></div>
     </div>
     <div class="field-group">
       <label>Цена (₽)</label>
-      <input id="f_price" type="number" min="0" value="${car?.price ?? ''}" placeholder="1500000"/>
+      <input id="f_price" type="number" min="0" max="999999999" value="${car?.price ?? ''}" placeholder="1500000"
+             oninput="validateCarPrice()"/>
+      <div class="field-error" id="err_price"></div>
     </div>
     <div class="field-group">
       <label>Состояние</label>
       <input id="f_state" value="${car?.state ?? ''}" placeholder="Новый / Б/у"/>
+      <div class="field-error" id="err_state"></div>
     </div>`;
 
   openModal();
+}
+
+function validateCarPrice() {
+  const el  = $('f_price');
+  const err = $('err_price');
+  if (!el || !err) return true;
+  const raw = el.value;
+  // Запрещаем буквы — input type=number уже не пропускает их в большинстве браузеров,
+  // но на всякий случай чистим
+  el.value = raw.replace(/[^0-9]/g, '');
+  const val = +el.value;
+  if (el.value === '') { err.textContent = 'Введите цену'; return false; }
+  if (val < 0)         { err.textContent = 'Цена не может быть отрицательной'; return false; }
+  if (val > 999999999) { err.textContent = 'Цена слишком большая (макс. 999 999 999)'; return false; }
+  err.textContent = '';
+  return true;
 }
 
 async function deleteCar(id) {
@@ -465,9 +485,14 @@ async function openSaleModal(sale = null) {
   openModal();
   try {
     const [users, cars] = await Promise.all([getUsers(), getCars()]);
-    const clients  = users.map(u => ({ value: u.id, label: `${u.name} (${ROLES[u.role] ?? u.role})` }));
-    const managers = users.filter(u => [ROLE.ADMIN, ROLE.MANAGER].includes(u.role))
-                          .map(u => ({ value: u.id, label: `${u.name} (${ROLES[u.role]})` }));
+    // Клиенты — только роль "Пользователь" (1)
+    const clients  = users
+      .filter(u => u.role === ROLE.USER)
+      .map(u => ({ value: u.id, label: `${u.name} (${u.login})` }));
+    // Менеджеры — только Админ (2) и Менеджер (3)
+    const managers = users
+      .filter(u => [ROLE.ADMIN, ROLE.MANAGER].includes(u.role))
+      .map(u => ({ value: u.id, label: `${u.name} (${ROLES[u.role]})` }));
     const carOpts  = cars.map(c => ({ value: c.id, label: `${c.brand}, ${c.year ? new Date(c.year).getFullYear() : '?'} — ${Number(c.price).toLocaleString('ru')} ₽ [${c.state}]` }));
     $('wrap_clientId').innerHTML  = buildSelect('f_clientId',  clients,  sale?.clientId,  '— Выберите клиента —');
     $('wrap_carId').innerHTML     = buildSelect('f_carId',     carOpts,  sale?.carId,     '— Выберите автомобиль —');
@@ -598,7 +623,10 @@ async function saveModal() {
       const year  = getVal('f_year');
       const price = getVal('f_price');
       const state = getVal('f_state');
-      if (!brand || !year || !price || !state) { toast('Заполните все поля', true); return; }
+      if (!brand) { $('err_brand') && ($('err_brand').textContent = 'Введите марку'); return; }
+      if (!year || +year < 1900 || +year > 2100) { $('err_year') && ($('err_year').textContent = 'Введите корректный год'); return; }
+      if (!validateCarPrice()) return;
+      if (!state) { $('err_state') && ($('err_state').textContent = 'Введите состояние'); return; }
       body = {
         brand,
         year:  new Date(Date.UTC(+year, 0, 1)).toISOString(),
