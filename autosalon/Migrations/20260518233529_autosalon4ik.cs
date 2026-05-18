@@ -14,20 +14,6 @@ namespace autosalon.Migrations
         protected override void Up(MigrationBuilder migrationBuilder)
         {
             migrationBuilder.CreateTable(
-                name: "Applications",
-                columns: table => new
-                {
-                    Id = table.Column<int>(type: "int", nullable: false)
-                        .Annotation("SqlServer:Identity", "1, 1"),
-                    DateTime = table.Column<DateTime>(type: "datetime2", nullable: false),
-                    SaleId = table.Column<int>(type: "int", nullable: true)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("PK_Applications", x => x.Id);
-                });
-
-            migrationBuilder.CreateTable(
                 name: "Cars",
                 columns: table => new
                 {
@@ -85,6 +71,27 @@ namespace autosalon.Migrations
                 constraints: table =>
                 {
                     table.PrimaryKey("PK_Users", x => x.Id);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "Applications",
+                columns: table => new
+                {
+                    Id = table.Column<int>(type: "int", nullable: false)
+                        .Annotation("SqlServer:Identity", "1, 1"),
+                    DateTime = table.Column<DateTime>(type: "datetime2", nullable: false),
+                    CarId = table.Column<int>(type: "int", nullable: false),
+                    SaleId = table.Column<int>(type: "int", nullable: true)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_Applications", x => x.Id);
+                    table.ForeignKey(
+                        name: "FK_Applications_Cars_CarId",
+                        column: x => x.CarId,
+                        principalTable: "Cars",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Cascade);
                 });
 
             migrationBuilder.CreateTable(
@@ -177,6 +184,11 @@ namespace autosalon.Migrations
                 });
 
             migrationBuilder.CreateIndex(
+                name: "IX_Applications_CarId",
+                table: "Applications",
+                column: "CarId");
+
+            migrationBuilder.CreateIndex(
                 name: "IX_Payments_SaleId",
                 table: "Payments",
                 column: "SaleId");
@@ -196,14 +208,12 @@ namespace autosalon.Migrations
             migrationBuilder.CreateIndex(
                 name: "IX_Sales_ClientId",
                 table: "Sales",
-                column: "ClientId",
-                unique: true);
+                column: "ClientId");
 
             migrationBuilder.CreateIndex(
                 name: "IX_Sales_ManagerId",
                 table: "Sales",
-                column: "ManagerId",
-                unique: true);
+                column: "ManagerId");
 
             migrationBuilder.CreateIndex(
                 name: "IX_Sales_UserId",
@@ -230,10 +240,10 @@ namespace autosalon.Migrations
                 name: "Applications");
 
             migrationBuilder.DropTable(
-                name: "Cars");
+                name: "Users");
 
             migrationBuilder.DropTable(
-                name: "Users");
+                name: "Cars");
         }
     }
 }

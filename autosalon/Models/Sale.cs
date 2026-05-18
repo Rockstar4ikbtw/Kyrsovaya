@@ -14,7 +14,7 @@ namespace autosalon.Models
         [Required(ErrorMessage = "Дата обязательна!")]
         public DateTime Date { get; set; }
 
-        [Range(0, 100000000, ErrorMessage = "Цена указана неверно!")]
+        [Range(0, int.MaxValue, ErrorMessage = "Цена указана неверно!")]
         public int Price { get; set; }
 
         [Required]

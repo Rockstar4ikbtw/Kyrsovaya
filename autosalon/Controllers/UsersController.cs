@@ -116,6 +116,8 @@ namespace YourProject.Controllers
         {
             var user = await _db.Users.FindAsync(id);
             if (user == null) return NotFound();
+            if (user.Role == Role.Admin)
+                return BadRequest(new { message = "Администратора нельзя удалить" });
             _db.Users.Remove(user);
             await _db.SaveChangesAsync();
             return NoContent();

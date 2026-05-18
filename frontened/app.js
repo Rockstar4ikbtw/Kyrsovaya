@@ -311,7 +311,7 @@ async function loadDashboard() {
 }
 
 // ─────────────────────────────────────────────
-//  CARS  
+//  CARS  ✅ исправлено
 // ─────────────────────────────────────────────
 async function loadCars() {
   showLoader('carsBody');
@@ -335,7 +335,7 @@ async function loadCars() {
   } catch { showEmpty('carsBody'); }
 }
 
-// Открываем окно с реальными данными
+// ✅ Открываем модальное окно с реальными данными из API
 async function editCar(id) {
   try {
     const car = await api('GET', `/cars/${id}`);
@@ -385,6 +385,8 @@ function validateCarPrice() {
   const err = $('err_price');
   if (!el || !err) return true;
   const raw = el.value;
+  // Запрещаем буквы — input type=number уже не пропускает их в большинстве браузеров,
+  // но на всякий случай чистим
   el.value = raw.replace(/[^0-9]/g, '');
   const val = +el.value;
   if (el.value === '') { err.textContent = 'Введите цену'; return false; }
@@ -499,11 +501,15 @@ async function openSaleModal(sale = null) {
 
     $('wrap_clientId').innerHTML  = buildSelect('f_clientId',  clients,  sale?.clientId,  '— Выберите клиента —');
     $('wrap_managerId').innerHTML = buildSelect('f_managerId', managers, sale?.managerId, '— Выберите менеджера —');
+
+    // Select авто с автозаполнением марки и цены
     const carSelectHtml = `<select id="f_carId">
       <option value="">— Выберите автомобиль —</option>
       ${carOpts.map(o => `<option value="${o.value}" data-brand="${o.brand}" data-price="${o.price}" ${o.value == sale?.carId ? 'selected' : ''}>${o.label}</option>`).join('')}
     </select>`;
     $('wrap_carId').innerHTML = carSelectHtml;
+
+    // Автозаполнение при выборе авто
     $('f_carId').addEventListener('change', function() {
       const opt = this.options[this.selectedIndex];
       if (opt.value) {
@@ -511,6 +517,8 @@ async function openSaleModal(sale = null) {
         $('f_price').value = opt.dataset.price || '';
       }
     });
+
+    // Если редактируем — сразу подставляем данные выбранного авто
     if (sale?.carId) {
       const found = carOpts.find(o => o.value == sale.carId);
       if (found) {
@@ -561,14 +569,34 @@ async function openPaymentModal(p = null) {
   modalMode = p ? 'edit' : 'create'; modalEntity = 'payments'; editId = p?.id ?? null;
   $('modalTitle').textContent = p ? 'Редактировать платёж' : 'Новый платёж';
   $('modalFields').innerHTML = `
-    <div class="field-group"><label>Сумма</label><input id="f_sum" type="number" value="${p?.sum ?? ''}"/></div>
-    <div class="field-group"><label>Дата и время</label><input id="f_dateTime" type="datetime-local" value="${p?.dateTime ? p.dateTime.substring(0,16) : new Date().toISOString().substring(0,16)}"/></div>
-    <div class="field-group"><label>Продажа</label><div id="wrap_saleId">${selectLoading('f_saleId')}</div></div>`;
+    <div class="field-group"><label>Продажа</label><div id="wrap_saleId">${selectLoading('f_saleId')}</div></div>
+    <div class="field-group"><label>Сумма (₽)</label><input id="f_sum" type="number" value="${p?.sum ?? ''}" placeholder="Заполнится автоматически"/></div>
+    <div class="field-group"><label>Дата и время</label><input id="f_dateTime" type="datetime-local" value="${p?.dateTime ? p.dateTime.substring(0,16) : new Date().toISOString().substring(0,16)}"/></div>`;
   openModal();
   try {
     const sales = await getSales();
-    const saleOpts = sales.map(s => ({ value: s.id, label: `#${s.id} — ${s.brand}, ${s.date ? new Date(s.date).toLocaleDateString('ru') : '?'}, ${Number(s.price).toLocaleString('ru')} ₽` }));
-    $('wrap_saleId').innerHTML = buildSelect('f_saleId', saleOpts, p?.saleId, '— Выберите продажу —');
+    const saleOpts = sales.map(s => ({
+      value: s.id,
+      price: s.price,
+      label: `#${s.id} — ${s.brand}, ${s.date ? new Date(s.date).toLocaleDateString('ru') : '?'}, ${Number(s.price).toLocaleString('ru')} ₽`,
+    }));
+
+    const opts = saleOpts.map(o =>
+      `<option value="${o.value}" data-price="${o.price}" ${o.value == p?.saleId ? 'selected' : ''}>${o.label}</option>`
+    ).join('');
+    $('wrap_saleId').innerHTML = `<select id="f_saleId"><option value="">— Выберите продажу —</option>${opts}</select>`;
+
+    // Автозаполнение суммы при выборе продажи
+    $('f_saleId').addEventListener('change', function() {
+      const opt = this.options[this.selectedIndex];
+      if (opt.value) $('f_sum').value = opt.dataset.price || '';
+    });
+
+    // Если редактируем — подставляем сумму сразу
+    if (p?.saleId) {
+      const found = saleOpts.find(o => o.value == p.saleId);
+      if (found && !p.sum) $('f_sum').value = found.price;
+    }
   } catch {
     $('wrap_saleId').innerHTML = `<input id="f_saleId" type="number" value="${p?.saleId ?? ''}" placeholder="ID продажи"/>`;
   }
@@ -588,19 +616,22 @@ async function deletePayment(id) {
 async function loadApplications() {
   showLoader('applicationsBody');
   try {
-    const apps = await api('GET', '/applications');
+    const [apps, cars] = await Promise.all([api('GET', '/applications'), getCars()]);
     if (!apps.length) { showEmpty('applicationsBody'); return; }
     const canWrite = ACCESS.applications.write.includes(currentUser.role);
-    $('applicationsBody').innerHTML = apps.map(a => `
-      <tr>
+    $('applicationsBody').innerHTML = apps.map(a => {
+      const car = cars.find(c => c.id === a.carId);
+      const carLabel = car ? `${car.brand}, ${car.year ? new Date(car.year).getFullYear() : '?'}` : '—';
+      return `<tr>
         <td>${a.id}</td>
         <td>${a.dateTime ? new Date(a.dateTime).toLocaleString('ru') : '—'}</td>
-        <td>${a.saleId ?? '—'}</td>
+        <td>${carLabel}</td>
         <td>${canWrite ? `
           <button class="btn-sm" onclick="editApplication(${a.id})">Ред.</button>
           <button class="btn-sm danger" onclick="deleteApplication(${a.id})">Удал.</button>
         ` : '—'}</td>
-      </tr>`).join('');
+      </tr>`;
+    }).join('');
   } catch { showEmpty('applicationsBody'); }
 }
 
@@ -609,16 +640,16 @@ async function openApplicationModal(a = null) {
   $('modalTitle').textContent = a ? 'Редактировать заявку' : 'Новая заявка';
   $('modalFields').innerHTML = `
     <div class="field-group"><label>Дата и время</label><input id="f_dateTime" type="datetime-local" value="${a?.dateTime ? a.dateTime.substring(0,16) : new Date().toISOString().substring(0,16)}"/></div>
-    <div class="field-group"><label>Продажа (необязательно)</label><div id="wrap_saleId">${selectLoading('f_saleId')}</div></div>`;
+    <div class="field-group"><label>Автомобиль</label><div id="wrap_carId">${selectLoading('f_carId')}</div></div>`;
   openModal();
   try {
-    const sales = await getSales();
-    const opts = sales.map(s =>
-      `<option value="${s.id}" ${s.id == a?.saleId ? 'selected' : ''}>#${s.id} — ${s.brand}, ${s.date ? new Date(s.date).toLocaleDateString('ru') : '?'}</option>`
+    const cars = await getCars();
+    const opts = cars.map(c =>
+      `<option value="${c.id}" ${c.id == a?.carId ? 'selected' : ''}>${c.brand}, ${c.year ? new Date(c.year).getFullYear() : '?'} — ${Number(c.price).toLocaleString('ru')} ₽ [${c.state}]</option>`
     ).join('');
-    $('wrap_saleId').innerHTML = `<select id="f_saleId"><option value="">— Без привязки к продаже —</option>${opts}</select>`;
+    $('wrap_carId').innerHTML = `<select id="f_carId"><option value="">— Выберите автомобиль —</option>${opts}</select>`;
   } catch {
-    $('wrap_saleId').innerHTML = `<input id="f_saleId" type="number" value="${a?.saleId ?? ''}" placeholder="ID продажи (необязательно)"/>`;
+    $('wrap_carId').innerHTML = `<input id="f_carId" type="number" value="${a?.carId ?? ''}" placeholder="ID автомобиля"/>`;
   }
 }
 
@@ -670,8 +701,9 @@ async function saveModal() {
       if (!clientId)  { toast('Выберите клиента', true); return; }
       if (!carId)     { toast('Выберите автомобиль', true); return; }
       if (!managerId) { toast('Выберите менеджера', true); return; }
-      if (!brand)     { toast('Марка не заполнена', true); return; }
-      if (!price)     { toast('Цена не заполнена', true); return; }
+      if (!brand)     { toast('Марка не заполнена — выберите автомобиль', true); return; }
+      if (!price || +price <= 0)  { toast('Введите цену', true); return; }
+      if (+price > 100000000)     { toast('Цена не может превышать 100 000 000 ₽', true); return; }
       body = {
         brand,
         date:      new Date(date).toISOString(),
@@ -684,14 +716,17 @@ async function saveModal() {
 
     } else if (modalEntity === 'payments') {
       const saleId = getVal('f_saleId');
-      if (!saleId) { toast('Выберите продажу', true); return; }
-      body = { sum: +getVal('f_sum'), dateTime: new Date(getVal('f_dateTime')).toISOString(), saleId: +saleId };
+      const sum    = getVal('f_sum');
+      if (!saleId)              { toast('Выберите продажу', true); return; }
+      if (!sum || +sum <= 0)    { toast('Введите сумму', true); return; }
+      if (+sum > 100000000)     { toast('Сумма не может превышать 100 000 000 ₽', true); return; }
+      body = { sum: Math.round(+sum), dateTime: new Date(getVal('f_dateTime')).toISOString(), saleId: +saleId };
       path = modalMode === 'edit' ? `/payments/${editId}` : '/payments';
 
     } else if (modalEntity === 'applications') {
-      body = { dateTime: new Date(getVal('f_dateTime')).toISOString() };
-      const saleId = getVal('f_saleId');
-      if (saleId) body.saleId = +saleId;
+      const carId = getVal('f_carId');
+      if (!carId) { toast('Выберите автомобиль', true); return; }
+      body = { dateTime: new Date(getVal('f_dateTime')).toISOString(), carId: +carId };
       path = modalMode === 'edit' ? `/applications/${editId}` : '/applications';
     }
 

@@ -55,6 +55,13 @@ namespace autosalon.Controllers
             if (sale == null)
                 return NotFound();
 
+            sale.Brand = updated.Brand;
+            sale.Date = updated.Date;
+            sale.Price = updated.Price;
+            sale.ClientId = updated.ClientId;
+            sale.CarId = updated.CarId;
+            sale.ManagerId = updated.ManagerId;
+
             await _db.SaveChangesAsync();
 
             return Ok(sale);

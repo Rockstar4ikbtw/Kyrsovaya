@@ -55,6 +55,10 @@ namespace autosalon.Controllers
             if (payment == null)
                 return NotFound();
 
+            payment.Sum = updated.Sum;
+            payment.DateTime = updated.DateTime;
+            payment.SaleId = updated.SaleId;
+
             await _db.SaveChangesAsync();
 
             return Ok(payment);

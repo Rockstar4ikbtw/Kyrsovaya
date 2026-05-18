@@ -30,6 +30,10 @@ namespace autosalon.Migrations
 
                     SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
 
+                    b.Property<int?>("CarId")
+                        .IsRequired()
+                        .HasColumnType("int");
+
                     b.Property<DateTime>("DateTime")
                         .HasColumnType("datetime2");
 
@@ -37,6 +41,8 @@ namespace autosalon.Migrations
                         .HasColumnType("int");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("CarId");
 
                     b.ToTable("Applications");
                 });
@@ -173,11 +179,9 @@ namespace autosalon.Migrations
 
                     b.HasIndex("CarId");
 
-                    b.HasIndex("ClientId")
-                        .IsUnique();
+                    b.HasIndex("ClientId");
 
-                    b.HasIndex("ManagerId")
-                        .IsUnique();
+                    b.HasIndex("ManagerId");
 
                     b.HasIndex("UserId");
 
@@ -259,6 +263,17 @@ namespace autosalon.Migrations
                     b.ToTable("Users");
                 });
 
+            modelBuilder.Entity("autosalon.Models.Application", b =>
+                {
+                    b.HasOne("autosalon.Models.Car", "Car")
+                        .WithMany()
+                        .HasForeignKey("CarId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Car");
+                });
+
             modelBuilder.Entity("autosalon.Models.Payment", b =>
                 {
                     b.HasOne("autosalon.Models.Sale", "Sale")
@@ -283,14 +298,14 @@ namespace autosalon.Migrations
                         .IsRequired();
 
                     b.HasOne("autosalon.Models.User", "Client")
-                        .WithOne()
-                        .HasForeignKey("autosalon.Models.Sale", "ClientId")
+                        .WithMany()
+                        .HasForeignKey("ClientId")
                         .OnDelete(DeleteBehavior.NoAction)
                         .IsRequired();
 
                     b.HasOne("autosalon.Models.User", "Manager")
-                        .WithOne()
-                        .HasForeignKey("autosalon.Models.Sale", "ManagerId")
+                        .WithMany()
+                        .HasForeignKey("ManagerId")
                         .OnDelete(DeleteBehavior.NoAction)
                         .IsRequired();
 

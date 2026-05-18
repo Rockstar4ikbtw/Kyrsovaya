@@ -1,4 +1,5 @@
 ﻿using System.ComponentModel.DataAnnotations;
+using System.Text.Json.Serialization;
 
 namespace autosalon.Models
 {
@@ -17,8 +18,15 @@ namespace autosalon.Models
         [Required(ErrorMessage = "Дата обязательна!")]
         public DateTime DateTime { get; set; }
 
+        [Required(ErrorMessage = "Автомобиль обязателен!")]
+        public int? CarId { get; set; }
+
+        [JsonIgnore]
+        public Car? Car { get; set; }
+
         public int? SaleId { get; set; }
 
+        [JsonIgnore]
         public Sale? Sale { get; set; }
     }
 }
