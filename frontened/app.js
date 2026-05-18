@@ -335,6 +335,7 @@ async function loadCars() {
   } catch { showEmpty('carsBody'); }
 }
 
+// Открываем окно с реальными данными
 async function editCar(id) {
   try {
     const car = await api('GET', `/cars/${id}`);
@@ -384,8 +385,6 @@ function validateCarPrice() {
   const err = $('err_price');
   if (!el || !err) return true;
   const raw = el.value;
-  // Запрещаем буквы — input type=number уже не пропускает их в большинстве браузеров,
-  // но на всякий случай чистим
   el.value = raw.replace(/[^0-9]/g, '');
   const val = +el.value;
   if (el.value === '') { err.textContent = 'Введите цену'; return false; }
@@ -476,27 +475,49 @@ async function openSaleModal(sale = null) {
   modalMode = sale ? 'edit' : 'create'; modalEntity = 'sales'; editId = sale?.id ?? null;
   $('modalTitle').textContent = sale ? 'Редактировать продажу' : 'Новая продажа';
   $('modalFields').innerHTML = `
-    <div class="field-group"><label>Марка / Модель</label><input id="f_brand" value="${sale?.brand ?? ''}"/></div>
     <div class="field-group"><label>Дата</label><input id="f_date" type="date" value="${sale?.date ? sale.date.substring(0,10) : new Date().toISOString().substring(0,10)}"/></div>
-    <div class="field-group"><label>Цена</label><input id="f_price" type="number" value="${sale?.price ?? ''}"/></div>
     <div class="field-group"><label>Клиент</label><div id="wrap_clientId">${selectLoading('f_clientId')}</div></div>
     <div class="field-group"><label>Автомобиль</label><div id="wrap_carId">${selectLoading('f_carId')}</div></div>
+    <div class="field-group"><label>Марка / Модель</label><input id="f_brand" value="${sale?.brand ?? ''}" placeholder="Заполнится автоматически"/></div>
+    <div class="field-group"><label>Цена (₽)</label><input id="f_price" type="number" value="${sale?.price ?? ''}" placeholder="Заполнится автоматически"/></div>
     <div class="field-group"><label>Менеджер</label><div id="wrap_managerId">${selectLoading('f_managerId')}</div></div>`;
   openModal();
   try {
     const [users, cars] = await Promise.all([getUsers(), getCars()]);
-    // Клиенты — только роль "Пользователь" (1)
     const clients  = users
       .filter(u => u.role === ROLE.USER)
       .map(u => ({ value: u.id, label: `${u.name} (${u.login})` }));
-    // Менеджеры — только Админ (2) и Менеджер (3)
     const managers = users
-      .filter(u => [ROLE.ADMIN, ROLE.MANAGER].includes(u.role))
+      .filter(u => u.role === ROLE.MANAGER)
       .map(u => ({ value: u.id, label: `${u.name} (${ROLES[u.role]})` }));
-    const carOpts  = cars.map(c => ({ value: c.id, label: `${c.brand}, ${c.year ? new Date(c.year).getFullYear() : '?'} — ${Number(c.price).toLocaleString('ru')} ₽ [${c.state}]` }));
+    const carOpts  = cars.map(c => ({
+      value: c.id,
+      label: `${c.brand}, ${c.year ? new Date(c.year).getFullYear() : '?'} — ${Number(c.price).toLocaleString('ru')} ₽ [${c.state}]`,
+      brand: c.brand,
+      price: c.price,
+    }));
+
     $('wrap_clientId').innerHTML  = buildSelect('f_clientId',  clients,  sale?.clientId,  '— Выберите клиента —');
-    $('wrap_carId').innerHTML     = buildSelect('f_carId',     carOpts,  sale?.carId,     '— Выберите автомобиль —');
     $('wrap_managerId').innerHTML = buildSelect('f_managerId', managers, sale?.managerId, '— Выберите менеджера —');
+    const carSelectHtml = `<select id="f_carId">
+      <option value="">— Выберите автомобиль —</option>
+      ${carOpts.map(o => `<option value="${o.value}" data-brand="${o.brand}" data-price="${o.price}" ${o.value == sale?.carId ? 'selected' : ''}>${o.label}</option>`).join('')}
+    </select>`;
+    $('wrap_carId').innerHTML = carSelectHtml;
+    $('f_carId').addEventListener('change', function() {
+      const opt = this.options[this.selectedIndex];
+      if (opt.value) {
+        $('f_brand').value = opt.dataset.brand || '';
+        $('f_price').value = opt.dataset.price || '';
+      }
+    });
+    if (sale?.carId) {
+      const found = carOpts.find(o => o.value == sale.carId);
+      if (found) {
+        $('f_brand').value = sale.brand || found.brand;
+        $('f_price').value = sale.price || found.price;
+      }
+    }
   } catch {
     $('wrap_clientId').innerHTML  = `<input id="f_clientId"  type="number" value="${sale?.clientId  ?? ''}" placeholder="ID клиента"/>`;
     $('wrap_carId').innerHTML     = `<input id="f_carId"     type="number" value="${sale?.carId     ?? ''}" placeholder="ID автомобиля"/>`;
@@ -643,8 +664,22 @@ async function saveModal() {
       const clientId  = getVal('f_clientId');
       const carId     = getVal('f_carId');
       const managerId = getVal('f_managerId');
-      if (!clientId || !carId || !managerId) { toast('Выберите клиента, автомобиль и менеджера', true); return; }
-      body = { brand: getVal('f_brand'), date: new Date(getVal('f_date')).toISOString(), price: +getVal('f_price'), clientId: +clientId, carId: +carId, managerId: +managerId };
+      const brand     = getVal('f_brand');
+      const price     = getVal('f_price');
+      const date      = getVal('f_date');
+      if (!clientId)  { toast('Выберите клиента', true); return; }
+      if (!carId)     { toast('Выберите автомобиль', true); return; }
+      if (!managerId) { toast('Выберите менеджера', true); return; }
+      if (!brand)     { toast('Марка не заполнена', true); return; }
+      if (!price)     { toast('Цена не заполнена', true); return; }
+      body = {
+        brand,
+        date:      new Date(date).toISOString(),
+        price:     Math.round(+price),   // Sale.Price — int
+        clientId:  +clientId,
+        carId:     +carId,
+        managerId: +managerId,
+      };
       path = modalMode === 'edit' ? `/sales/${editId}` : '/sales';
 
     } else if (modalEntity === 'payments') {
