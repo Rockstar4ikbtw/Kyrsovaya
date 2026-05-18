@@ -55,6 +55,11 @@ namespace autosalon.Controllers
             if (car == null)
                 return NotFound();
 
+            car.brand = updated.brand;
+            car.year = updated.year;
+            car.price = updated.price;
+            car.state = updated.state;
+
             await _db.SaveChangesAsync();
 
             return Ok(car);

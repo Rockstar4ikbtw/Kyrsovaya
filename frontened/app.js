@@ -3,9 +3,8 @@
 // ─────────────────────────────────────────────
 const API = 'http://localhost:5155/api';
 
-const ROLES = { 1: 'Пользователь', 2: 'Админ', 3: 'Менеджер', 4: 'Бухгалтер' };
-const ROLE  = { USER: 1, ADMIN: 2, MANAGER: 3, ACCOUNTANT: 4 };
-
+const ROLES      = { 1: 'Пользователь', 2: 'Админ', 3: 'Менеджер', 4: 'Бухгалтер' };
+const ROLE       = { USER: 1, ADMIN: 2, MANAGER: 3, ACCOUNTANT: 4 };
 const ROLE_CODES = { 2: 'admin123', 3: 'manager123', 4: 'accountant123' };
 
 const ACCESS = {
@@ -18,11 +17,11 @@ const ACCESS = {
 };
 
 const NAV_LABELS = {
-  dashboard: 'Главная',
-  cars: 'Автомобили',
-  users: 'Пользователи',
-  sales: 'Продажи',
-  payments: 'Платежи',
+  dashboard:    'Главная',
+  cars:         'Автомобили',
+  users:        'Пользователи',
+  sales:        'Продажи',
+  payments:     'Платежи',
   applications: 'Заявки',
 };
 
@@ -36,8 +35,12 @@ let modalEntity   = null;
 let editId        = null;
 let selectedRole  = 1;
 
+let _carsCache  = null;
+let _usersCache = null;
+let _salesCache = null;
+
 // ─────────────────────────────────────────────
-//  DOM HELPERS
+//  DOM / TOAST
 // ─────────────────────────────────────────────
 const $ = id => document.getElementById(id);
 
@@ -52,17 +55,45 @@ function toast(msg, isError = false) {
 function showLoader(tbodyId) {
   $(tbodyId).innerHTML = `<tr><td colspan="99"><div class="loader">Загрузка...</div></td></tr>`;
 }
-
 function showEmpty(tbodyId) {
   $(tbodyId).innerHTML = `<tr><td colspan="99"><div class="empty">Нет данных</div></td></tr>`;
 }
 
 // ─────────────────────────────────────────────
-//  ВЫБОР РОЛИ В ФОРМЕ РЕГИСТРАЦИИ
+//  КЭШИ
+// ─────────────────────────────────────────────
+async function getCars(force = false) {
+  if (!_carsCache || force) _carsCache = await api('GET', '/cars').catch(() => []);
+  return _carsCache;
+}
+async function getUsers(force = false) {
+  if (!_usersCache || force) _usersCache = await api('GET', '/users').catch(() => []);
+  return _usersCache;
+}
+async function getSales(force = false) {
+  if (!_salesCache || force) _salesCache = await api('GET', '/sales').catch(() => []);
+  return _salesCache;
+}
+function invalidateCache() { _carsCache = null; _usersCache = null; _salesCache = null; }
+
+// ─────────────────────────────────────────────
+//  SELECT HELPERS
+// ─────────────────────────────────────────────
+function buildSelect(id, options, currentVal, placeholder = '— Выберите —') {
+  const opts = options.map(o =>
+    `<option value="${o.value}" ${o.value == currentVal ? 'selected' : ''}>${o.label}</option>`
+  ).join('');
+  return `<select id="${id}"><option value="">${placeholder}</option>${opts}</select>`;
+}
+function selectLoading(id) {
+  return `<select id="${id}" disabled><option>Загрузка...</option></select>`;
+}
+
+// ─────────────────────────────────────────────
+//  РОЛИ (регистрация)
 // ─────────────────────────────────────────────
 function selectRole(roleId) {
   selectedRole = roleId;
-
   [1,2,3,4].forEach(i => {
     const card = $('rc' + i);
     if (!card) return;
@@ -70,18 +101,12 @@ function selectRole(roleId) {
     const radio = card.querySelector('input[type=radio]');
     if (radio) radio.checked = (i === roleId);
   });
-
-  const needsCode = roleId !== 1;
   const wrap = $('roleConfirmWrap');
-  const nameEl = $('confirmRoleName');
-  if (wrap) {
-    wrap.classList.toggle('visible', needsCode);
-    if (needsCode && nameEl) nameEl.textContent = ROLES[roleId];
-    if (!needsCode) {
-      const input = $('roleConfirmCode');
-      if (input) input.value = '';
-    }
-  }
+  if (!wrap) return;
+  const needsCode = roleId !== 1;
+  wrap.classList.toggle('visible', needsCode);
+  if (needsCode) $('confirmRoleName').textContent = ROLES[roleId];
+  else { const inp = $('roleConfirmCode'); if (inp) inp.value = ''; }
 }
 
 // ─────────────────────────────────────────────
@@ -122,29 +147,24 @@ async function doLogin() {
 
 function doLogout() {
   currentUser = null;
+  invalidateCache();
   sessionStorage.removeItem('autosalon_user');
   $('appShell').classList.remove('visible');
   $('loginScreen').classList.remove('hidden');
-  $('loginInput').value  = '';
+  $('loginInput').value = '';
   $('passwordInput').value = '';
   selectRole(1);
 }
 
-// ─────────────────────────────────────────────
-//  ПЕРЕКЛЮЧЕНИЕ ВКЛАДОК
-// ─────────────────────────────────────────────
 function switchAuthTab(tab) {
   $('tabLogin').classList.toggle('active', tab === 'login');
   $('tabRegister').classList.toggle('active', tab === 'register');
   $('panelLogin').classList.toggle('active', tab === 'login');
   $('panelRegister').classList.toggle('active', tab === 'register');
-  $('loginError').textContent    = '';
+  $('loginError').textContent = '';
   $('registerError').textContent = '';
 }
 
-// ─────────────────────────────────────────────
-//  РЕГИСТРАЦИЯ
-// ─────────────────────────────────────────────
 async function doRegister() {
   const name     = $('regName').value.trim();
   const login    = $('regLogin').value.trim();
@@ -157,17 +177,11 @@ async function doRegister() {
   if (!name || !login || !password || !phone || !email) {
     $('registerError').textContent = 'Заполните все поля'; return;
   }
-
   if (role !== 1) {
     const code = ($('roleConfirmCode')?.value || '').trim();
-    if (!code) {
-      $('registerError').textContent = 'Введите код подтверждения для выбранной роли'; return;
-    }
-    if (code !== ROLE_CODES[role]) {
-      $('registerError').textContent = 'Неверный код подтверждения'; return;
-    }
+    if (!code) { $('registerError').textContent = 'Введите код подтверждения'; return; }
+    if (code !== ROLE_CODES[role]) { $('registerError').textContent = 'Неверный код'; return; }
   }
-
   try {
     const user = await api('POST', '/users', { name, login, password, phone, email, role });
     currentUser = user;
@@ -183,7 +197,7 @@ async function doRegister() {
 }
 
 // ─────────────────────────────────────────────
-//  ИНИЦИАЛИЗАЦИЯ ПРИЛОЖЕНИЯ
+//  ИНИЦИАЛИЗАЦИЯ
 // ─────────────────────────────────────────────
 function initApp() {
   $('loginScreen').classList.add('hidden');
@@ -220,8 +234,7 @@ function switchSection(id) {
     if (el) el.style.display = (k === id && canWrite) ? '' : (k === id ? 'none' : el.style.display);
   }
 
-  const loaders = { cars: loadCars, users: loadUsers, sales: loadSales, payments: loadPayments, applications: loadApplications, dashboard: loadDashboard };
-  loaders[id]?.();
+  ({ cars: loadCars, users: loadUsers, sales: loadSales, payments: loadPayments, applications: loadApplications, dashboard: loadDashboard })[id]?.();
 }
 
 // ─────────────────────────────────────────────
@@ -239,6 +252,10 @@ async function loadDashboard() {
       ACCESS.applications.read.includes(currentUser.role) ? api('GET', '/applications') : Promise.resolve(null),
     ]);
 
+    _carsCache = cars;
+    if (users)  _usersCache = users;
+    if (sales)  _salesCache = sales;
+
     const icon = paths => `<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${paths}</svg>`;
     const icons = {
       cars:         icon('<path d="M5 17H3a2 2 0 01-2-2V9a2 2 0 012-2h16a2 2 0 012 2v6a2 2 0 01-2 2h-2"/><circle cx="7" cy="17" r="2"/><circle cx="17" cy="17" r="2"/><path d="M5 9l2-4h10l2 4"/>'),
@@ -249,11 +266,11 @@ async function loadDashboard() {
     };
 
     const statDefs = [
-      { key: 'sales',        label: 'Продажи',      sub: 'сделок за всё время', val: sales,    featured: true },
-      { key: 'cars',         label: 'Автомобили',    sub: 'в каталоге',          val: cars,     wide: true },
-      { key: 'users',        label: 'Пользователи',  sub: 'зарегистрировано',    val: users },
-      { key: 'payments',     label: 'Платежи',       sub: 'транзакций',          val: payments },
-      { key: 'applications', label: 'Заявки',        sub: 'на рассмотрении',     val: apps },
+      { key: 'sales',        label: 'Продажи',     sub: 'сделок за всё время', val: sales,    featured: true },
+      { key: 'cars',         label: 'Автомобили',   sub: 'в каталоге',          val: cars,     wide: true },
+      { key: 'users',        label: 'Пользователи', sub: 'зарегистрировано',    val: users },
+      { key: 'payments',     label: 'Платежи',      sub: 'транзакций',          val: payments },
+      { key: 'applications', label: 'Заявки',       sub: 'на рассмотрении',     val: apps },
     ].filter(s => s.val !== null);
 
     grid.innerHTML = statDefs.map(s => {
@@ -294,43 +311,76 @@ async function loadDashboard() {
 }
 
 // ─────────────────────────────────────────────
-//  CARS
+//  CARS  
 // ─────────────────────────────────────────────
 async function loadCars() {
   showLoader('carsBody');
   try {
     const cars = await api('GET', '/cars');
+    _carsCache = cars;
     if (!cars.length) { showEmpty('carsBody'); return; }
     const canWrite = ACCESS.cars.write.includes(currentUser.role);
-    $('carsBody').innerHTML = cars.map(c => `<tr>
-      <td>${c.id}</td>
-      <td>${c.brand}</td>
-      <td>${c.year ? new Date(c.year).getFullYear() : '—'}</td>
-      <td>${Number(c.price).toLocaleString('ru')} ₽</td>
-      <td>${c.state}</td>
-      <td>${canWrite ? `
-        <button class="btn-sm" onclick="editCar(${c.id})">Ред.</button>
-        <button class="btn-sm danger" onclick="deleteCar(${c.id})">Удал.</button>
-      ` : '—'}</td>
-    </tr>`).join('');
+    $('carsBody').innerHTML = cars.map(c => `
+      <tr>
+        <td>${c.id}</td>
+        <td>${c.brand}</td>
+        <td>${c.year ? new Date(c.year).getFullYear() : '—'}</td>
+        <td>${Number(c.price).toLocaleString('ru')} ₽</td>
+        <td>${c.state}</td>
+        <td>${canWrite ? `
+          <button class="btn-sm" onclick="editCar(${c.id})">Ред.</button>
+          <button class="btn-sm danger" onclick="deleteCar(${c.id})">Удал.</button>
+        ` : '—'}</td>
+      </tr>`).join('');
   } catch { showEmpty('carsBody'); }
 }
 
+async function editCar(id) {
+  try {
+    const car = await api('GET', `/cars/${id}`);
+    openCarModal(car);
+  } catch {}
+}
+
 function openCarModal(car = null) {
-  modalMode = car ? 'edit' : 'create'; modalEntity = 'cars'; editId = car?.id ?? null;
+  modalMode   = car ? 'edit' : 'create';
+  modalEntity = 'cars';
+  editId      = car?.id ?? null;
+
   $('modalTitle').textContent = car ? 'Редактировать автомобиль' : 'Новый автомобиль';
+
+  // ✅ Год: из ISO-строки берём getFullYear(), чтобы не было смещения часового пояса
+  const yearVal = car?.year
+    ? new Date(car.year).getFullYear()
+    : new Date().getFullYear();
+
   $('modalFields').innerHTML = `
-    <div class="field-group"><label>Марка</label><input id="f_brand" value="${car?.brand ?? ''}"/></div>
-    <div class="field-group"><label>Год</label><input id="f_year" type="number" value="${car?.year ? new Date(car.year).getFullYear() : new Date().getFullYear()}"/></div>
-    <div class="field-group"><label>Цена</label><input id="f_price" type="number" value="${car?.price ?? ''}"/></div>
-    <div class="field-group"><label>Состояние</label><input id="f_state" value="${car?.state ?? ''}"/></div>`;
+    <div class="field-group">
+      <label>Марка / Модель</label>
+      <input id="f_brand" value="${car?.brand ?? ''}" placeholder="Toyota Camry"/>
+    </div>
+    <div class="field-group">
+      <label>Год выпуска</label>
+      <input id="f_year" type="number" min="1900" max="2100" value="${yearVal}"/>
+    </div>
+    <div class="field-group">
+      <label>Цена (₽)</label>
+      <input id="f_price" type="number" min="0" value="${car?.price ?? ''}" placeholder="1500000"/>
+    </div>
+    <div class="field-group">
+      <label>Состояние</label>
+      <input id="f_state" value="${car?.state ?? ''}" placeholder="Новый / Б/у"/>
+    </div>`;
+
   openModal();
 }
 
-async function editCar(id)   { try { openCarModal(await api('GET', `/cars/${id}`)); } catch {} }
 async function deleteCar(id) {
   if (!confirm('Удалить автомобиль?')) return;
-  await api('DELETE', `/cars/${id}`); toast('Автомобиль удалён'); loadCars();
+  await api('DELETE', `/cars/${id}`);
+  _carsCache = null;
+  toast('Автомобиль удалён');
+  loadCars();
 }
 
 // ─────────────────────────────────────────────
@@ -340,6 +390,7 @@ async function loadUsers() {
   showLoader('usersBody');
   try {
     const users = await api('GET', '/users');
+    _usersCache = users;
     if (!users.length) { showEmpty('usersBody'); return; }
     $('usersBody').innerHTML = users.map(u => `
       <tr>
@@ -356,7 +407,8 @@ async function loadUsers() {
 function openUserModal(user = null) {
   modalMode = user ? 'edit' : 'create'; modalEntity = 'users'; editId = user?.id ?? null;
   $('modalTitle').textContent = user ? 'Редактировать пользователя' : 'Новый пользователь';
-  const roleOpts = Object.entries(ROLES).map(([v,n]) => `<option value="${v}" ${user?.role == v ? 'selected' : ''}>${n}</option>`).join('');
+  const roleOpts = Object.entries(ROLES).map(([v,n]) =>
+    `<option value="${v}" ${user?.role == v ? 'selected' : ''}>${n}</option>`).join('');
   $('modalFields').innerHTML = `
     <div class="field-group"><label>Имя</label><input id="f_name" value="${user?.name ?? ''}"/></div>
     <div class="field-group"><label>Логин</label><input id="f_login" value="${user?.login ?? ''}"/></div>
@@ -367,10 +419,13 @@ function openUserModal(user = null) {
   openModal();
 }
 
-async function editUser(id)   { try { openUserModal(await api('GET', `/users/${id}`)); } catch {} }
+async function editUser(id) { try { openUserModal(await api('GET', `/users/${id}`)); } catch {} }
 async function deleteUser(id) {
   if (!confirm('Удалить пользователя?')) return;
-  await api('DELETE', `/users/${id}`); toast('Пользователь удалён'); loadUsers();
+  await api('DELETE', `/users/${id}`);
+  _usersCache = null;
+  toast('Пользователь удалён');
+  loadUsers();
 }
 
 // ─────────────────────────────────────────────
@@ -380,6 +435,7 @@ async function loadSales() {
   showLoader('salesBody');
   try {
     const sales = await api('GET', '/sales');
+    _salesCache = sales;
     if (!sales.length) { showEmpty('salesBody'); return; }
     const canWrite = ACCESS.sales.write.includes(currentUser.role);
     $('salesBody').innerHTML = sales.map(s => `
@@ -396,23 +452,40 @@ async function loadSales() {
   } catch { showEmpty('salesBody'); }
 }
 
-function openSaleModal(sale = null) {
+async function openSaleModal(sale = null) {
   modalMode = sale ? 'edit' : 'create'; modalEntity = 'sales'; editId = sale?.id ?? null;
   $('modalTitle').textContent = sale ? 'Редактировать продажу' : 'Новая продажа';
   $('modalFields').innerHTML = `
-    <div class="field-group"><label>Марка</label><input id="f_brand" value="${sale?.brand ?? ''}"/></div>
-    <div class="field-group"><label>Дата</label><input id="f_date" type="date" value="${sale?.date ? sale.date.substring(0,10) : ''}"/></div>
+    <div class="field-group"><label>Марка / Модель</label><input id="f_brand" value="${sale?.brand ?? ''}"/></div>
+    <div class="field-group"><label>Дата</label><input id="f_date" type="date" value="${sale?.date ? sale.date.substring(0,10) : new Date().toISOString().substring(0,10)}"/></div>
     <div class="field-group"><label>Цена</label><input id="f_price" type="number" value="${sale?.price ?? ''}"/></div>
-    <div class="field-group"><label>ID Клиента</label><input id="f_clientId" type="number" value="${sale?.clientId ?? ''}"/></div>
-    <div class="field-group"><label>ID Автомобиля</label><input id="f_carId" type="number" value="${sale?.carId ?? ''}"/></div>
-    <div class="field-group"><label>ID Менеджера</label><input id="f_managerId" type="number" value="${sale?.managerId ?? ''}"/></div>`;
+    <div class="field-group"><label>Клиент</label><div id="wrap_clientId">${selectLoading('f_clientId')}</div></div>
+    <div class="field-group"><label>Автомобиль</label><div id="wrap_carId">${selectLoading('f_carId')}</div></div>
+    <div class="field-group"><label>Менеджер</label><div id="wrap_managerId">${selectLoading('f_managerId')}</div></div>`;
   openModal();
+  try {
+    const [users, cars] = await Promise.all([getUsers(), getCars()]);
+    const clients  = users.map(u => ({ value: u.id, label: `${u.name} (${ROLES[u.role] ?? u.role})` }));
+    const managers = users.filter(u => [ROLE.ADMIN, ROLE.MANAGER].includes(u.role))
+                          .map(u => ({ value: u.id, label: `${u.name} (${ROLES[u.role]})` }));
+    const carOpts  = cars.map(c => ({ value: c.id, label: `${c.brand}, ${c.year ? new Date(c.year).getFullYear() : '?'} — ${Number(c.price).toLocaleString('ru')} ₽ [${c.state}]` }));
+    $('wrap_clientId').innerHTML  = buildSelect('f_clientId',  clients,  sale?.clientId,  '— Выберите клиента —');
+    $('wrap_carId').innerHTML     = buildSelect('f_carId',     carOpts,  sale?.carId,     '— Выберите автомобиль —');
+    $('wrap_managerId').innerHTML = buildSelect('f_managerId', managers, sale?.managerId, '— Выберите менеджера —');
+  } catch {
+    $('wrap_clientId').innerHTML  = `<input id="f_clientId"  type="number" value="${sale?.clientId  ?? ''}" placeholder="ID клиента"/>`;
+    $('wrap_carId').innerHTML     = `<input id="f_carId"     type="number" value="${sale?.carId     ?? ''}" placeholder="ID автомобиля"/>`;
+    $('wrap_managerId').innerHTML = `<input id="f_managerId" type="number" value="${sale?.managerId ?? ''}" placeholder="ID менеджера"/>`;
+  }
 }
 
-async function editSale(id)   { try { openSaleModal(await api('GET', `/sales/${id}`)); } catch {} }
+async function editSale(id) { try { await openSaleModal(await api('GET', `/sales/${id}`)); } catch {} }
 async function deleteSale(id) {
   if (!confirm('Удалить продажу?')) return;
-  await api('DELETE', `/sales/${id}`); toast('Продажа удалена'); loadSales();
+  await api('DELETE', `/sales/${id}`);
+  _salesCache = null;
+  toast('Продажа удалена');
+  loadSales();
 }
 
 // ─────────────────────────────────────────────
@@ -438,20 +511,29 @@ async function loadPayments() {
   } catch { showEmpty('paymentsBody'); }
 }
 
-function openPaymentModal(p = null) {
+async function openPaymentModal(p = null) {
   modalMode = p ? 'edit' : 'create'; modalEntity = 'payments'; editId = p?.id ?? null;
   $('modalTitle').textContent = p ? 'Редактировать платёж' : 'Новый платёж';
   $('modalFields').innerHTML = `
     <div class="field-group"><label>Сумма</label><input id="f_sum" type="number" value="${p?.sum ?? ''}"/></div>
-    <div class="field-group"><label>Дата</label><input id="f_dateTime" type="datetime-local" value="${p?.dateTime ? p.dateTime.substring(0,16) : ''}"/></div>
-    <div class="field-group"><label>ID Продажи</label><input id="f_saleId" type="number" value="${p?.saleId ?? ''}"/></div>`;
+    <div class="field-group"><label>Дата и время</label><input id="f_dateTime" type="datetime-local" value="${p?.dateTime ? p.dateTime.substring(0,16) : new Date().toISOString().substring(0,16)}"/></div>
+    <div class="field-group"><label>Продажа</label><div id="wrap_saleId">${selectLoading('f_saleId')}</div></div>`;
   openModal();
+  try {
+    const sales = await getSales();
+    const saleOpts = sales.map(s => ({ value: s.id, label: `#${s.id} — ${s.brand}, ${s.date ? new Date(s.date).toLocaleDateString('ru') : '?'}, ${Number(s.price).toLocaleString('ru')} ₽` }));
+    $('wrap_saleId').innerHTML = buildSelect('f_saleId', saleOpts, p?.saleId, '— Выберите продажу —');
+  } catch {
+    $('wrap_saleId').innerHTML = `<input id="f_saleId" type="number" value="${p?.saleId ?? ''}" placeholder="ID продажи"/>`;
+  }
 }
 
-async function editPayment(id)   { try { openPaymentModal(await api('GET', `/payments/${id}`)); } catch {} }
+async function editPayment(id) { try { await openPaymentModal(await api('GET', `/payments/${id}`)); } catch {} }
 async function deletePayment(id) {
   if (!confirm('Удалить платёж?')) return;
-  await api('DELETE', `/payments/${id}`); toast('Платёж удалён'); loadPayments();
+  await api('DELETE', `/payments/${id}`);
+  toast('Платёж удалён');
+  loadPayments();
 }
 
 // ─────────────────────────────────────────────
@@ -476,19 +558,30 @@ async function loadApplications() {
   } catch { showEmpty('applicationsBody'); }
 }
 
-function openApplicationModal(a = null) {
+async function openApplicationModal(a = null) {
   modalMode = a ? 'edit' : 'create'; modalEntity = 'applications'; editId = a?.id ?? null;
   $('modalTitle').textContent = a ? 'Редактировать заявку' : 'Новая заявка';
   $('modalFields').innerHTML = `
     <div class="field-group"><label>Дата и время</label><input id="f_dateTime" type="datetime-local" value="${a?.dateTime ? a.dateTime.substring(0,16) : new Date().toISOString().substring(0,16)}"/></div>
-    <div class="field-group"><label>ID Продажи (необязательно)</label><input id="f_saleId" type="number" value="${a?.saleId ?? ''}"/></div>`;
+    <div class="field-group"><label>Продажа (необязательно)</label><div id="wrap_saleId">${selectLoading('f_saleId')}</div></div>`;
   openModal();
+  try {
+    const sales = await getSales();
+    const opts = sales.map(s =>
+      `<option value="${s.id}" ${s.id == a?.saleId ? 'selected' : ''}>#${s.id} — ${s.brand}, ${s.date ? new Date(s.date).toLocaleDateString('ru') : '?'}</option>`
+    ).join('');
+    $('wrap_saleId').innerHTML = `<select id="f_saleId"><option value="">— Без привязки к продаже —</option>${opts}</select>`;
+  } catch {
+    $('wrap_saleId').innerHTML = `<input id="f_saleId" type="number" value="${a?.saleId ?? ''}" placeholder="ID продажи (необязательно)"/>`;
+  }
 }
 
-async function editApplication(id)   { try { openApplicationModal(await api('GET', `/applications/${id}`)); } catch {} }
+async function editApplication(id) { try { await openApplicationModal(await api('GET', `/applications/${id}`)); } catch {} }
 async function deleteApplication(id) {
   if (!confirm('Удалить заявку?')) return;
-  await api('DELETE', `/applications/${id}`); toast('Заявка удалена'); loadApplications();
+  await api('DELETE', `/applications/${id}`);
+  toast('Заявка удалена');
+  loadApplications();
 }
 
 // ─────────────────────────────────────────────
@@ -497,32 +590,57 @@ async function deleteApplication(id) {
 function getVal(id) { const el = document.getElementById(id); return el ? el.value : undefined; }
 
 async function saveModal() {
-  let body = {}, path = '';
   const method = modalMode === 'create' ? 'POST' : 'PUT';
+  let body = {}, path = '';
   try {
     if (modalEntity === 'cars') {
-      body = { brand: getVal('f_brand'), year: new Date(getVal('f_year'), 0).toISOString(), price: +getVal('f_price'), state: getVal('f_state') };
+      const brand = getVal('f_brand');
+      const year  = getVal('f_year');
+      const price = getVal('f_price');
+      const state = getVal('f_state');
+      if (!brand || !year || !price || !state) { toast('Заполните все поля', true); return; }
+      body = {
+        brand,
+        year:  new Date(Date.UTC(+year, 0, 1)).toISOString(),
+        price: +price,
+        state,
+      };
       path = modalMode === 'edit' ? `/cars/${editId}` : '/cars';
+
     } else if (modalEntity === 'users') {
       body = { name: getVal('f_name'), login: getVal('f_login'), password: getVal('f_password'), phone: getVal('f_phone'), email: getVal('f_email'), role: +getVal('f_role') };
       path = modalMode === 'edit' ? `/users/${editId}` : '/users';
+
     } else if (modalEntity === 'sales') {
-      body = { brand: getVal('f_brand'), date: new Date(getVal('f_date')).toISOString(), price: +getVal('f_price'), clientId: +getVal('f_clientId'), carId: +getVal('f_carId'), managerId: +getVal('f_managerId') };
+      const clientId  = getVal('f_clientId');
+      const carId     = getVal('f_carId');
+      const managerId = getVal('f_managerId');
+      if (!clientId || !carId || !managerId) { toast('Выберите клиента, автомобиль и менеджера', true); return; }
+      body = { brand: getVal('f_brand'), date: new Date(getVal('f_date')).toISOString(), price: +getVal('f_price'), clientId: +clientId, carId: +carId, managerId: +managerId };
       path = modalMode === 'edit' ? `/sales/${editId}` : '/sales';
+
     } else if (modalEntity === 'payments') {
-      body = { sum: +getVal('f_sum'), dateTime: new Date(getVal('f_dateTime')).toISOString(), saleId: +getVal('f_saleId') };
+      const saleId = getVal('f_saleId');
+      if (!saleId) { toast('Выберите продажу', true); return; }
+      body = { sum: +getVal('f_sum'), dateTime: new Date(getVal('f_dateTime')).toISOString(), saleId: +saleId };
       path = modalMode === 'edit' ? `/payments/${editId}` : '/payments';
+
     } else if (modalEntity === 'applications') {
       body = { dateTime: new Date(getVal('f_dateTime')).toISOString() };
       const saleId = getVal('f_saleId');
       if (saleId) body.saleId = +saleId;
       path = modalMode === 'edit' ? `/applications/${editId}` : '/applications';
     }
+
     await api(method, path, body);
+
+    if (modalEntity === 'cars')  _carsCache  = null;
+    if (modalEntity === 'users') _usersCache = null;
+    if (modalEntity === 'sales') _salesCache = null;
+
     toast(modalMode === 'create' ? 'Успешно создано' : 'Успешно обновлено');
     closeModal();
-    const reloaders = { cars: loadCars, users: loadUsers, sales: loadSales, payments: loadPayments, applications: loadApplications };
-    reloaders[modalEntity]?.();
+    ({ cars: loadCars, users: loadUsers, sales: loadSales, payments: loadPayments, applications: loadApplications })[modalEntity]?.();
   } catch {}
 }
 
@@ -536,19 +654,19 @@ function openModal() {
 function closeModal() { $('modalOverlay').classList.remove('open'); }
 
 // ─────────────────────────────────────────────
-//  СОБЫТИЯ
+//  BOOT
 // ─────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
   const saved = sessionStorage.getItem('autosalon_user');
   if (saved) { currentUser = JSON.parse(saved); initApp(); }
 
-  $('loginBtn').onclick   = doLogin;
+  $('loginBtn').onclick    = doLogin;
   $('registerBtn').onclick = doRegister;
-  $('logoutBtn').onclick  = doLogout;
+  $('logoutBtn').onclick   = doLogout;
 
-  $('loginInput').onkeydown   = e => { if (e.key === 'Enter') $('passwordInput').focus(); };
+  $('loginInput').onkeydown    = e => { if (e.key === 'Enter') $('passwordInput').focus(); };
   $('passwordInput').onkeydown = e => { if (e.key === 'Enter') doLogin(); };
-  $('regEmail').onkeydown     = e => { if (e.key === 'Enter') doRegister(); };
+  $('regEmail').onkeydown      = e => { if (e.key === 'Enter') doRegister(); };
 
   $('addCarBtn').onclick         = () => openCarModal();
   $('addUserBtn').onclick        = () => openUserModal();
