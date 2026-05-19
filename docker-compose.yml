@@ -8,6 +8,12 @@ services:
       - "1433:1433"
     volumes:
       - db-data:/var/opt/mssql
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P 'Secret123!' -Q 'SELECT 1' -b -No"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 45s
 
   backend:
     build: ./autosalon
@@ -15,13 +21,18 @@ services:
       - "8080:8080"
     environment:
       ConnectionStrings__DefaultConnection: "Server=db,1433;Database=autosalon;User Id=sa;Password=Secret123!;TrustServerCertificate=True;"
-    depends_on: [db]
+      ASPNETCORE_ENVIRONMENT: "Production"
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: on-failure
 
   frontend:
     build: ./frontened
     ports:
       - "3000:80"
-    depends_on: [backend]
+    depends_on:
+      - backend
 
 volumes:
   db-data:
