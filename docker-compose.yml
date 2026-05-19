@@ -1,0 +1,27 @@
+services:
+  db:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    environment:
+      ACCEPT_EULA: "Y"
+      SA_PASSWORD: "Secret123!"
+    ports:
+      - "1433:1433"
+    volumes:
+      - db-data:/var/opt/mssql
+
+  backend:
+    build: ./autosalon
+    ports:
+      - "8080:8080"
+    environment:
+      ConnectionStrings__DefaultConnection: "Server=db,1433;Database=autosalon;User Id=sa;Password=Secret123!;TrustServerCertificate=True;"
+    depends_on: [db]
+
+  frontend:
+    build: ./frontened
+    ports:
+      - "3000:80"
+    depends_on: [backend]
+
+volumes:
+  db-data:
