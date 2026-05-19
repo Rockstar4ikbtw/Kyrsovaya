@@ -1,4 +1,5 @@
 ﻿using System.ComponentModel.DataAnnotations;
+using System.Text.Json.Serialization;
 
 namespace autosalon.Models
 {
@@ -14,7 +15,14 @@ namespace autosalon.Models
 
         [Required]
         public int SaleId { get; set; }
-
+        [JsonIgnore]
         public Sale? Sale { get; set; }
+
+        [Required]
+        public int ManagerId { get; set; }
+        [JsonIgnore]
+        public User? Manager { get; set; }
+
+        public string? Note { get; set; }
     }
 }

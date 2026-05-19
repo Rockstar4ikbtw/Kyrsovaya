@@ -2,8 +2,6 @@
 using autosalon.Models;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
-using autosalon.Data;
-using autosalon.Models;
 
 namespace autosalon.Controllers
 {
@@ -13,10 +11,7 @@ namespace autosalon.Controllers
     {
         private readonly AppDbContext _db;
 
-        public PaymentsController(AppDbContext db)
-        {
-            _db = db;
-        }
+        public PaymentsController(AppDbContext db) => _db = db;
 
         [HttpGet]
         public async Task<IActionResult> GetAll()

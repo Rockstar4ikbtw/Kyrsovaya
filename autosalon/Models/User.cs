@@ -5,7 +5,8 @@
         User = 1,
         Admin = 2,
         Manager = 3,
-        Accountant = 4
+        Accountant = 4,
+        Director = 5
     }
 
     public class User
@@ -16,9 +17,8 @@
         public string Password { get; set; } = string.Empty;
         public string Phone { get; set; } = string.Empty;
         public string Email { get; set; } = string.Empty;
-        
         public Role Role { get; set; } = Role.User;
-        
+
         [System.Text.Json.Serialization.JsonIgnore]
         public ICollection<Sale> Sales { get; set; } = new List<Sale>();
     }

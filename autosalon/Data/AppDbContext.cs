@@ -5,15 +5,28 @@ namespace autosalon.Data
 {
     public class AppDbContext : DbContext
     {
-        public AppDbContext(DbContextOptions<AppDbContext> options) : base(options) { }
+        public AppDbContext(DbContextOptions<AppDbContext> options)
+            : base(options)
+        {
+        }
 
         public DbSet<User> Users { get; set; }
+
         public DbSet<Car> Cars { get; set; }
+
         public DbSet<Sale> Sales { get; set; }
+
         public DbSet<Payment> Payments { get; set; }
+
         public DbSet<Application> Applications { get; set; }
+
+        public DbSet<Report> Reports { get; set; }
+
         public DbSet<RoleEntity> Roles { get; set; }
+
         public DbSet<StatuseEntity> Statuses { get; set; }
+
+
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -22,9 +35,8 @@ namespace autosalon.Data
                 .HasConversion<int>();
 
             modelBuilder.Entity<Car>()
-                .Property(p => p.price)
+                .Property(p => p.Price)
                 .HasColumnType("decimal(18,2)");
-
 
             modelBuilder.Entity<Application>()
                 .HasOne(a => a.Sale)
@@ -46,7 +58,8 @@ namespace autosalon.Data
                 new RoleEntity { Id = (int)Role.User, Name = "Пользователь" },
                 new RoleEntity { Id = (int)Role.Admin, Name = "Админ" },
                 new RoleEntity { Id = (int)Role.Manager, Name = "Менеджер" },
-                new RoleEntity { Id = (int)Role.Accountant, Name = "Бухгалтер" }
+                new RoleEntity { Id = (int)Role.Accountant, Name = "Бухгалтер" },
+                new RoleEntity { Id = (int)Role.Director, Name = "Руководитель" }
             );
 
             modelBuilder.Entity<StatuseEntity>().HasData(

@@ -55,18 +55,18 @@ namespace autosalon.Migrations
 
                     SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
 
-                    b.Property<string>("brand")
+                    b.Property<string>("Brand")
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
 
-                    b.Property<decimal>("price")
+                    b.Property<decimal>("Price")
                         .HasColumnType("decimal(18,2)");
 
-                    b.Property<string>("state")
+                    b.Property<string>("State")
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
 
-                    b.Property<DateTime>("year")
+                    b.Property<DateTime>("Year")
                         .HasColumnType("datetime2");
 
                     b.HasKey("Id");
@@ -85,6 +85,12 @@ namespace autosalon.Migrations
                     b.Property<DateTime>("DateTime")
                         .HasColumnType("datetime2");
 
+                    b.Property<int>("ManagerId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Note")
+                        .HasColumnType("nvarchar(max)");
+
                     b.Property<int>("SaleId")
                         .HasColumnType("int");
 
@@ -93,9 +99,51 @@ namespace autosalon.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("ManagerId");
+
                     b.HasIndex("SaleId");
 
                     b.ToTable("Payments");
+                });
+
+            modelBuilder.Entity("autosalon.Models.Report", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<int>("AccountantId")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime>("DateFrom")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime>("DateTo")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("Notes")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<int>("Period")
+                        .HasColumnType("int");
+
+                    b.Property<long>("TotalPayments")
+                        .HasColumnType("bigint");
+
+                    b.Property<long>("TotalRevenue")
+                        .HasColumnType("bigint");
+
+                    b.Property<int>("TotalSales")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("Reports");
                 });
 
             modelBuilder.Entity("autosalon.Models.RoleEntity", b =>
@@ -134,6 +182,11 @@ namespace autosalon.Migrations
                         {
                             Id = 4,
                             Name = "Бухгалтер"
+                        },
+                        new
+                        {
+                            Id = 5,
+                            Name = "Руководитель"
                         });
                 });
 
@@ -276,11 +329,19 @@ namespace autosalon.Migrations
 
             modelBuilder.Entity("autosalon.Models.Payment", b =>
                 {
+                    b.HasOne("autosalon.Models.User", "Manager")
+                        .WithMany()
+                        .HasForeignKey("ManagerId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
                     b.HasOne("autosalon.Models.Sale", "Sale")
                         .WithMany()
                         .HasForeignKey("SaleId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
+
+                    b.Navigation("Manager");
 
                     b.Navigation("Sale");
                 });

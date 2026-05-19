@@ -19,14 +19,35 @@ namespace autosalon.Migrations
                 {
                     Id = table.Column<int>(type: "int", nullable: false)
                         .Annotation("SqlServer:Identity", "1, 1"),
-                    brand = table.Column<string>(type: "nvarchar(max)", nullable: false),
-                    year = table.Column<DateTime>(type: "datetime2", nullable: false),
-                    price = table.Column<decimal>(type: "decimal(18,2)", nullable: false),
-                    state = table.Column<string>(type: "nvarchar(max)", nullable: false)
+                    Brand = table.Column<string>(type: "nvarchar(max)", nullable: false),
+                    Year = table.Column<DateTime>(type: "datetime2", nullable: false),
+                    Price = table.Column<decimal>(type: "decimal(18,2)", nullable: false),
+                    State = table.Column<string>(type: "nvarchar(max)", nullable: false)
                 },
                 constraints: table =>
                 {
                     table.PrimaryKey("PK_Cars", x => x.Id);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "Reports",
+                columns: table => new
+                {
+                    Id = table.Column<int>(type: "int", nullable: false)
+                        .Annotation("SqlServer:Identity", "1, 1"),
+                    CreatedAt = table.Column<DateTime>(type: "datetime2", nullable: false),
+                    Period = table.Column<int>(type: "int", nullable: false),
+                    DateFrom = table.Column<DateTime>(type: "datetime2", nullable: false),
+                    DateTo = table.Column<DateTime>(type: "datetime2", nullable: false),
+                    AccountantId = table.Column<int>(type: "int", nullable: false),
+                    TotalSales = table.Column<int>(type: "int", nullable: false),
+                    TotalRevenue = table.Column<long>(type: "bigint", nullable: false),
+                    TotalPayments = table.Column<long>(type: "bigint", nullable: false),
+                    Notes = table.Column<string>(type: "nvarchar(max)", nullable: true)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_Reports", x => x.Id);
                 });
 
             migrationBuilder.CreateTable(
@@ -148,7 +169,9 @@ namespace autosalon.Migrations
                         .Annotation("SqlServer:Identity", "1, 1"),
                     Sum = table.Column<int>(type: "int", nullable: false),
                     DateTime = table.Column<DateTime>(type: "datetime2", nullable: false),
-                    SaleId = table.Column<int>(type: "int", nullable: false)
+                    SaleId = table.Column<int>(type: "int", nullable: false),
+                    ManagerId = table.Column<int>(type: "int", nullable: false),
+                    Note = table.Column<string>(type: "nvarchar(max)", nullable: true)
                 },
                 constraints: table =>
                 {
@@ -157,6 +180,12 @@ namespace autosalon.Migrations
                         name: "FK_Payments_Sales_SaleId",
                         column: x => x.SaleId,
                         principalTable: "Sales",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Cascade);
+                    table.ForeignKey(
+                        name: "FK_Payments_Users_ManagerId",
+                        column: x => x.ManagerId,
+                        principalTable: "Users",
                         principalColumn: "Id",
                         onDelete: ReferentialAction.Cascade);
                 });
@@ -169,7 +198,8 @@ namespace autosalon.Migrations
                     { 1, "Пользователь" },
                     { 2, "Админ" },
                     { 3, "Менеджер" },
-                    { 4, "Бухгалтер" }
+                    { 4, "Бухгалтер" },
+                    { 5, "Руководитель" }
                 });
 
             migrationBuilder.InsertData(
@@ -187,6 +217,11 @@ namespace autosalon.Migrations
                 name: "IX_Applications_CarId",
                 table: "Applications",
                 column: "CarId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_Payments_ManagerId",
+                table: "Payments",
+                column: "ManagerId");
 
             migrationBuilder.CreateIndex(
                 name: "IX_Payments_SaleId",
@@ -226,6 +261,9 @@ namespace autosalon.Migrations
         {
             migrationBuilder.DropTable(
                 name: "Payments");
+
+            migrationBuilder.DropTable(
+                name: "Reports");
 
             migrationBuilder.DropTable(
                 name: "Roles");
