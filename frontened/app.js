@@ -1,778 +1,1422 @@
-// ─────────────────────────────────────────────
-//  КОНФИГУРАЦИЯ
-// ─────────────────────────────────────────────
 const API = 'http://localhost:5155/api';
 
-const ROLES      = { 1: 'Пользователь', 2: 'Админ', 3: 'Менеджер', 4: 'Бухгалтер' };
-const ROLE       = { USER: 1, ADMIN: 2, MANAGER: 3, ACCOUNTANT: 4 };
-const ROLE_CODES = { 2: 'admin123', 3: 'manager123', 4: 'accountant123' };
+let currentUser = null;
+let modalMode = null;   
+let modalEntity = null; 
+let editId = null;
 
-const ACCESS = {
-  dashboard:    { read: [1,2,3,4], write: [] },
-  cars:         { read: [1,2,3,4], write: [2,3] },
-  users:        { read: [2],       write: [2] },
-  sales:        { read: [2,3,4],   write: [2,3] },
-  payments:     { read: [2,4],     write: [2,4] },
-  applications: { read: [1,2,3],   write: [1,2,3] },
-};
+// Cache
+let carsCache    = [];
+let usersCache   = [];
+let salesCache   = [];
 
-const NAV_LABELS = {
-  dashboard:    'Главная',
-  cars:         'Автомобили',
-  users:        'Пользователи',
-  sales:        'Продажи',
-  payments:     'Платежи',
-  applications: 'Заявки',
-};
-
-// ─────────────────────────────────────────────
-//  СОСТОЯНИЕ
-// ─────────────────────────────────────────────
-let currentUser   = null;
-let activeSection = 'dashboard';
-let modalMode     = null;
-let modalEntity   = null;
-let editId        = null;
-let selectedRole  = 1;
-
-let _carsCache  = null;
-let _usersCache = null;
-let _salesCache = null;
-
-// ─────────────────────────────────────────────
-//  DOM / TOAST
-// ─────────────────────────────────────────────
-const $ = id => document.getElementById(id);
-
-function toast(msg, isError = false) {
-  const el = $('toast');
-  el.textContent = msg;
-  el.className = 'show' + (isError ? ' error' : '');
-  clearTimeout(el._t);
-  el._t = setTimeout(() => { el.className = ''; }, 3000);
-}
-
-function showLoader(tbodyId) {
-  $(tbodyId).innerHTML = `<tr><td colspan="99"><div class="loader">Загрузка...</div></td></tr>`;
-}
-function showEmpty(tbodyId) {
-  $(tbodyId).innerHTML = `<tr><td colspan="99"><div class="empty">Нет данных</div></td></tr>`;
-}
-
-// ─────────────────────────────────────────────
-//  КЭШИ
-// ─────────────────────────────────────────────
-async function getCars(force = false) {
-  if (!_carsCache || force) _carsCache = await api('GET', '/cars').catch(() => []);
-  return _carsCache;
-}
-async function getUsers(force = false) {
-  if (!_usersCache || force) _usersCache = await api('GET', '/users').catch(() => []);
-  return _usersCache;
-}
-async function getSales(force = false) {
-  if (!_salesCache || force) _salesCache = await api('GET', '/sales').catch(() => []);
-  return _salesCache;
-}
-function invalidateCache() { _carsCache = null; _usersCache = null; _salesCache = null; }
-
-// ─────────────────────────────────────────────
-//  SELECT HELPERS
-// ─────────────────────────────────────────────
-function buildSelect(id, options, currentVal, placeholder = '— Выберите —') {
-  const opts = options.map(o =>
-    `<option value="${o.value}" ${o.value == currentVal ? 'selected' : ''}>${o.label}</option>`
-  ).join('');
-  return `<select id="${id}"><option value="">${placeholder}</option>${opts}</select>`;
-}
-function selectLoading(id) {
-  return `<select id="${id}" disabled><option>Загрузка...</option></select>`;
-}
-
-// ─────────────────────────────────────────────
-//  РОЛИ (регистрация)
-// ─────────────────────────────────────────────
-function selectRole(roleId) {
-  selectedRole = roleId;
-  [1,2,3,4].forEach(i => {
-    const card = $('rc' + i);
-    if (!card) return;
-    card.classList.toggle('selected', i === roleId);
-    const radio = card.querySelector('input[type=radio]');
-    if (radio) radio.checked = (i === roleId);
-  });
-  const wrap = $('roleConfirmWrap');
-  if (!wrap) return;
-  const needsCode = roleId !== 1;
-  wrap.classList.toggle('visible', needsCode);
-  if (needsCode) $('confirmRoleName').textContent = ROLES[roleId];
-  else { const inp = $('roleConfirmCode'); if (inp) inp.value = ''; }
-}
-
-// ─────────────────────────────────────────────
-//  API
-// ─────────────────────────────────────────────
-async function api(method, path, body) {
-  try {
-    const opts = { method, headers: { 'Content-Type': 'application/json' } };
-    if (body) opts.body = JSON.stringify(body);
-    const res = await fetch(API + path, opts);
-    if (res.status === 204) return true;
-    const json = await res.json();
-    if (!res.ok) throw new Error(json?.message || res.statusText);
-    return json;
-  } catch (e) {
-    toast(e.message || 'Ошибка сети', true);
-    throw e;
-  }
-}
-
-// ─────────────────────────────────────────────
-//  АВТОРИЗАЦИЯ
-// ─────────────────────────────────────────────
-async function doLogin() {
-  const login    = $('loginInput').value.trim();
-  const password = $('passwordInput').value.trim();
-  $('loginError').textContent = '';
-  if (!login || !password) { $('loginError').textContent = 'Заполните все поля'; return; }
-  try {
-    const user = await api('POST', '/users/login', { login, password });
-    currentUser = user;
-    sessionStorage.setItem('autosalon_user', JSON.stringify(user));
-    initApp();
-  } catch {
-    $('loginError').textContent = 'Неверный логин или пароль';
-  }
-}
-
-function doLogout() {
-  currentUser = null;
-  invalidateCache();
-  sessionStorage.removeItem('autosalon_user');
-  $('appShell').classList.remove('visible');
-  $('loginScreen').classList.remove('hidden');
-  $('loginInput').value = '';
-  $('passwordInput').value = '';
-  selectRole(1);
-}
+// ========================
+// AUTH TABS (Login screen)
+// ========================
+let selectedRole = 1;
+const PROTECTED_ROLES = [2, 3, 4, 5]; // all except User require a code
+const ROLE_CODES = { 2: 'admin123', 3: 'manager123', 4: 'accountant123', 5: 'director123' };
 
 function switchAuthTab(tab) {
-  $('tabLogin').classList.toggle('active', tab === 'login');
-  $('tabRegister').classList.toggle('active', tab === 'register');
-  $('panelLogin').classList.toggle('active', tab === 'login');
-  $('panelRegister').classList.toggle('active', tab === 'register');
-  $('loginError').textContent = '';
-  $('registerError').textContent = '';
+    document.getElementById('tabLogin').classList.toggle('active', tab === 'login');
+    document.getElementById('tabRegister').classList.toggle('active', tab === 'register');
+    document.getElementById('panelLogin').classList.toggle('active', tab === 'login');
+    document.getElementById('panelRegister').classList.toggle('active', tab === 'register');
 }
 
-async function doRegister() {
-  const name     = $('regName').value.trim();
-  const login    = $('regLogin').value.trim();
-  const password = $('regPassword').value.trim();
-  const phone    = $('regPhone').value.trim();
-  const email    = $('regEmail').value.trim();
-  const role     = selectedRole;
-  $('registerError').textContent = '';
-
-  if (!name || !login || !password || !phone || !email) {
-    $('registerError').textContent = 'Заполните все поля'; return;
-  }
-  if (role !== 1) {
-    const code = ($('roleConfirmCode')?.value || '').trim();
-    if (!code) { $('registerError').textContent = 'Введите код подтверждения'; return; }
-    if (code !== ROLE_CODES[role]) { $('registerError').textContent = 'Неверный код'; return; }
-  }
-  try {
-    const user = await api('POST', '/users', { name, login, password, phone, email, role });
-    currentUser = user;
-    sessionStorage.setItem('autosalon_user', JSON.stringify(user));
-    ['regName','regLogin','regPassword','regPhone','regEmail'].forEach(id => $(id).value = '');
-    if ($('roleConfirmCode')) $('roleConfirmCode').value = '';
-    selectRole(1);
-    initApp();
-    toast('Добро пожаловать, ' + user.name + '!');
-  } catch {
-    $('registerError').textContent = 'Ошибка регистрации. Возможно, логин уже занят.';
-  }
+function selectRole(num) {
+    selectedRole = num;
+    for (let i = 1; i <= 5; i++) {
+        document.getElementById('rc' + i)?.classList.toggle('selected', i === num);
+    }
+    const wrap = document.getElementById('roleConfirmWrap');
+    const needsCode = PROTECTED_ROLES.includes(num);
+    wrap.classList.toggle('visible', needsCode);
+    if (needsCode) {
+        const names = { 2: 'Администратор', 3: 'Менеджер', 4: 'Бухгалтер', 5: 'Руководитель' };
+        document.getElementById('confirmRoleName').textContent = names[num];
+    }
 }
 
-// ─────────────────────────────────────────────
-//  ИНИЦИАЛИЗАЦИЯ
-// ─────────────────────────────────────────────
-function initApp() {
-  $('loginScreen').classList.add('hidden');
-  $('appShell').classList.add('visible');
-  $('userName').textContent  = currentUser.name;
-  $('roleBadge').textContent = ROLES[currentUser.role] || 'Пользователь';
-  buildNav();
-  switchSection('dashboard');
+// ========================
+// LOGIN / REGISTER
+// ========================
+async function login() {
+    const login    = document.getElementById('loginInput').value.trim();
+    const password = document.getElementById('passwordInput').value;
+    if (!login || !password) { showLoginError('Введите логин и пароль'); return; }
+
+    try {
+        const res = await fetch(`${API}/users/login`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ login, password })
+        });
+        if (!res.ok) { showLoginError('Неверный логин или пароль'); return; }
+        currentUser = await res.json();
+        enterApp();
+    } catch (e) {
+        showLoginError('Ошибка подключения к серверу');
+    }
 }
+
+async function register() {
+    const name     = document.getElementById('regName').value.trim();
+    const login    = document.getElementById('regLogin').value.trim();
+    const password = document.getElementById('regPassword').value;
+    const phone    = document.getElementById('regPhone').value.trim();
+    const email    = document.getElementById('regEmail').value.trim();
+    const role     = selectedRole;
+
+    if (!name || !login || !password) {
+        showRegisterError('Заполните обязательные поля'); return;
+    }
+
+    if (PROTECTED_ROLES.includes(role)) {
+        const code = document.getElementById('roleConfirmCode').value;
+        if (code !== ROLE_CODES[role]) {
+            showRegisterError('Неверный код подтверждения'); return;
+        }
+    }
+
+    try {
+        const res = await fetch(`${API}/users`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name, login, password, phone, email, role })
+        });
+        if (!res.ok) { showRegisterError('Ошибка регистрации. Логин уже занят?'); return; }
+        currentUser = await res.json();
+        enterApp();
+    } catch (e) {
+        showRegisterError('Ошибка подключения к серверу');
+    }
+}
+
+function enterApp() {
+    document.getElementById('loginScreen').classList.add('hidden');
+    document.getElementById('appShell').classList.add('visible');
+    document.getElementById('userName').textContent = currentUser.name;
+    document.getElementById('roleBadge').textContent = roleLabel(currentUser.role);
+    buildNav();
+    showSection('dashboard');
+}
+
+function logout() {
+    currentUser = null;
+    document.getElementById('loginScreen').classList.remove('hidden');
+    document.getElementById('appShell').classList.remove('visible');
+    document.getElementById('loginInput').value    = '';
+    document.getElementById('passwordInput').value = '';
+    document.getElementById('loginError').textContent = '';
+}
+
+function showLoginError(msg) {
+    document.getElementById('loginError').textContent = msg;
+}
+function showRegisterError(msg) {
+    document.getElementById('registerError').textContent = msg;
+}
+
+document.getElementById('passwordInput')
+    .addEventListener('keydown', e => { if (e.key === 'Enter') login(); });
+
+document.getElementById('loginBtn').addEventListener('click', login);
+document.getElementById('registerBtn').addEventListener('click', register);
+document.getElementById('logoutBtn').addEventListener('click', logout);
+
+// ========================
+// ROLES
+// ========================
+function roleLabel(role) {
+    const map = { 1: 'Пользователь', 2: 'Администратор', 3: 'Менеджер', 4: 'Бухгалтер', 5: 'Руководитель' };
+    return map[role] || role;
+}
+
+function isAdmin()      { return currentUser?.role === 2; }
+function isManager()    { return currentUser?.role === 3; }
+function isAccountant() { return currentUser?.role === 4; }
+function isDirector()   { return currentUser?.role === 5; }
+function isAdminOrDirector() { return isAdmin() || isDirector(); }
+function canModifyCars()  { return isAdmin() || isManager() || isDirector(); }
+function canSell()        { return isAdmin() || isManager() || isDirector(); }
+function canPayments()    { return isAdmin() || isManager(); }
+function canReports()     { return isAdmin() || isAccountant() || isDirector(); }
+function canManageUsers() { return isAdmin(); }
+
+// ========================
+// NAVIGATION
+// ========================
+const NAV_ITEMS = [
+    { id: 'dashboard',    label: 'Главная',      always: true },
+    { id: 'cars',         label: 'Автомобили',   always: true },
+    { id: 'sales',        label: 'Продажи',      check: () => canSell() },
+    { id: 'applications', label: 'Заявки',       always: true },
+    { id: 'payments',     label: 'Платежи',      check: () => canPayments() },
+    { id: 'reports',      label: 'Отчётность',   check: () => canReports() },
+    { id: 'users',        label: 'Пользователи', check: () => canManageUsers() },
+];
 
 function buildNav() {
-  const nav = $('mainNav');
-  nav.innerHTML = '';
-  for (const [key, label] of Object.entries(NAV_LABELS)) {
-    if (!ACCESS[key].read.includes(currentUser.role)) continue;
-    const btn = document.createElement('button');
-    btn.className = 'nav-btn';
-    btn.dataset.section = key;
-    btn.textContent = label;
-    btn.onclick = () => switchSection(key);
-    nav.appendChild(btn);
-  }
+    const nav = document.getElementById('mainNav');
+    nav.innerHTML = '';
+    NAV_ITEMS.forEach(item => {
+        if (!item.always && !item.check()) return;
+        const btn = document.createElement('button');
+        btn.className = 'nav-btn';
+        btn.id = 'nav-' + item.id;
+        btn.textContent = item.label;
+        btn.onclick = () => showSection(item.id);
+        nav.appendChild(btn);
+    });
 }
 
-function switchSection(id) {
-  activeSection = id;
-  document.querySelectorAll('.nav-btn').forEach(b => b.classList.toggle('active', b.dataset.section === id));
-  document.querySelectorAll('.section').forEach(s => s.classList.toggle('active', s.id === 'section-' + id));
+function showSection(name) {
+    document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+    document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
 
-  const canWrite = ACCESS[id]?.write.includes(currentUser.role);
-  const addBtns  = { cars: 'addCarBtn', users: 'addUserBtn', sales: 'addSaleBtn', payments: 'addPaymentBtn', applications: 'addApplicationBtn' };
-  for (const [k, v] of Object.entries(addBtns)) {
-    const el = $(v);
-    if (el) el.style.display = (k === id && canWrite) ? '' : (k === id ? 'none' : el.style.display);
-  }
+    const sec = document.getElementById('section-' + name);
+    if (sec) sec.classList.add('active');
+    const btn = document.getElementById('nav-' + name);
+    if (btn) btn.classList.add('active');
 
-  ({ cars: loadCars, users: loadUsers, sales: loadSales, payments: loadPayments, applications: loadApplications, dashboard: loadDashboard })[id]?.();
+    const addCarBtn  = document.getElementById('addCarBtn');
+    const addSaleBtn = document.getElementById('addSaleBtn');
+    const addPayBtn  = document.getElementById('addPaymentBtn');
+    const addRptBtn  = document.getElementById('addReportBtn');
+    const addUsrBtn  = document.getElementById('addUserBtn');
+    const addAppBtn  = document.getElementById('addApplicationBtn');
+
+    if (addCarBtn)  addCarBtn.style.display  = canModifyCars() ? '' : 'none';
+    if (addSaleBtn) addSaleBtn.style.display = canSell()       ? '' : 'none';
+    if (addPayBtn)  addPayBtn.style.display  = canPayments()   ? '' : 'none';
+    if (addRptBtn)  addRptBtn.style.display  = canReports()    ? '' : 'none';
+    if (addUsrBtn)  addUsrBtn.style.display  = canManageUsers()? '' : 'none';
+    if (addAppBtn)  addAppBtn.style.display  = '';
+
+    if (name === 'dashboard')         loadDashboard();
+    else if (name === 'cars')         loadCars();
+    else if (name === 'sales')        loadSales();
+    else if (name === 'applications') loadApplications();
+    else if (name === 'payments')     loadPayments();
+    else if (name === 'reports')      loadReports();
+    else if (name === 'users')        loadUsers();
 }
 
-// ─────────────────────────────────────────────
-//  DASHBOARD
-// ─────────────────────────────────────────────
-async function loadDashboard() {
-  const grid = $('statsGrid');
-  grid.innerHTML = '';
-  try {
-    const [cars, users, sales, payments, apps] = await Promise.all([
-      api('GET', '/cars'),
-      currentUser.role === ROLE.ADMIN ? api('GET', '/users') : Promise.resolve(null),
-      ACCESS.sales.read.includes(currentUser.role)        ? api('GET', '/sales')        : Promise.resolve(null),
-      ACCESS.payments.read.includes(currentUser.role)     ? api('GET', '/payments')     : Promise.resolve(null),
-      ACCESS.applications.read.includes(currentUser.role) ? api('GET', '/applications') : Promise.resolve(null),
-    ]);
+// ========================
+// API HELPERS
+// ========================
+async function apiFetch(path, options = {}) {
+    return fetch(`${API}${path}`, {
+        headers: { 'Content-Type': 'application/json', ...options.headers },
+        ...options
+    });
+}
 
-    _carsCache = cars;
-    if (users)  _usersCache = users;
-    if (sales)  _salesCache = sales;
+function fmt(n)     { return Number(n).toLocaleString('ru-RU'); }
+function fmtDate(d) { return d ? new Date(d).toLocaleDateString('ru-RU') : '—'; }
 
-    const icon = paths => `<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${paths}</svg>`;
-    const icons = {
-      cars:         icon('<path d="M5 17H3a2 2 0 01-2-2V9a2 2 0 012-2h16a2 2 0 012 2v6a2 2 0 01-2 2h-2"/><circle cx="7" cy="17" r="2"/><circle cx="17" cy="17" r="2"/><path d="M5 9l2-4h10l2 4"/>'),
-      users:        icon('<circle cx="12" cy="7" r="4"/><path d="M5.5 20a8.38 8.38 0 0113 0"/>'),
-      sales:        icon('<polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/>'),
-      payments:     icon('<rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/>'),
-      applications: icon('<path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/>'),
+// ========================
+// API ERROR PARSER
+// ========================
+async function parseApiError(res) {
+    const text = await res.text();
+    try {
+        const json = JSON.parse(text);
+        if (json.errors) {
+            const msgs = Object.entries(json.errors).map(([field, errs]) => {
+                const fieldMap = {
+                    'car':    'Автомобиль',
+                    'brand':  'Марка',
+                    'year':   'Год выпуска',
+                    'price':  'Цена',
+                    'state':  'Состояние',
+                    'date':   'Дата',
+                    'clientId':  'Клиент',
+                    'managerId': 'Менеджер',
+                    'saleId':    'Продажа',
+                    'sum':       'Сумма',
+                };
+                const label = fieldMap[field] || field.replace(/^\$\./, '');
+                return label + ': ' + (Array.isArray(errs) ? errs.join(', ') : errs);
+            });
+            return msgs.join(' | ');
+        }
+        if (json.title) return json.title;
+        if (json.message) return json.message;
+    } catch (_) {}
+    return text || 'Неизвестная ошибка';
+}
+
+// ========================
+// MODAL INLINE ERROR
+// ========================
+// Показывает ошибку внутри модального окна (под полями, над кнопками)
+function showModalError(msg) {
+    let el = document.getElementById('modalError');
+    if (!el) {
+        el = document.createElement('div');
+        el.id = 'modalError';
+        el.style.cssText = [
+            'color:#e74c3c',
+            'background:rgba(231,76,60,0.1)',
+            'border:1px solid rgba(231,76,60,0.35)',
+            'border-radius:6px',
+            'padding:10px 14px',
+            'margin-top:12px',
+            'font-size:13.5px',
+            'line-height:1.5',
+            'white-space:pre-wrap',
+        ].join(';');
+        // Вставляем перед кнопками (footer модалки)
+        const footer = document.querySelector('.modal-footer') || document.getElementById('modalSave')?.parentElement;
+        if (footer) {
+            footer.parentElement.insertBefore(el, footer);
+        } else {
+            document.getElementById('modalFields').after(el);
+        }
+    }
+    el.textContent = msg;
+    el.style.display = 'block';
+}
+
+// Подсвечивает конкретное поле красной рамкой и убирает её при вводе
+function highlightField(id) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.style.borderColor = '#e74c3c';
+    el.style.boxShadow   = '0 0 0 2px rgba(231,76,60,0.25)';
+    const clear = () => {
+        el.style.borderColor = '';
+        el.style.boxShadow   = '';
+        el.removeEventListener('input',  clear);
+        el.removeEventListener('change', clear);
     };
+    el.addEventListener('input',  clear);
+    el.addEventListener('change', clear);
+}
 
-    const statDefs = [
-      { key: 'sales',        label: 'Продажи',     sub: 'сделок за всё время', val: sales,    featured: true },
-      { key: 'cars',         label: 'Автомобили',   sub: 'в каталоге',          val: cars,     wide: true },
-      { key: 'users',        label: 'Пользователи', sub: 'зарегистрировано',    val: users },
-      { key: 'payments',     label: 'Платежи',      sub: 'транзакций',          val: payments },
-      { key: 'applications', label: 'Заявки',       sub: 'на рассмотрении',     val: apps },
-    ].filter(s => s.val !== null);
+function clearModalError() {
+    const el = document.getElementById('modalError');
+    if (el) el.style.display = 'none';
+    // Снимаем все подсветки полей
+    document.querySelectorAll('#modalFields input, #modalFields select').forEach(el => {
+        el.style.borderColor = '';
+        el.style.boxShadow   = '';
+    });
+}
 
-    grid.innerHTML = statDefs.map(s => {
-      const count = Array.isArray(s.val) ? s.val.length : 0;
-      if (s.featured) return `
-        <div class="stat-card featured">
-          <div style="display:flex;align-items:center;gap:20px;">
-            <div class="stat-icon large" style="color:var(--accent)">${icons[s.key]}</div>
-            <div class="stat-body">
-              <div class="stat-label">${s.label}</div>
-              <div class="stat-value">${count}</div>
-              <div class="stat-sublabel">${s.sub}</div>
+// ========================
+// DASHBOARD
+// ========================
+async function loadDashboard() {
+    const grid = document.getElementById('statsGrid');
+    grid.innerHTML = '<div class="loader"></div>';
+    try {
+        const [salesRes, carsRes, usersRes, paymentsRes] = await Promise.all([
+            apiFetch('/sales'), apiFetch('/cars'), apiFetch('/users'), apiFetch('/payments')
+        ]);
+        const sales    = await salesRes.json();
+        const cars     = await carsRes.json();
+        const users    = await usersRes.json();
+        const payments = await paymentsRes.json();
+
+        salesCache  = sales;
+        carsCache   = cars;
+        usersCache  = users;
+
+        const totalRevenue = sales.reduce((s, x) => s + (x.price || x.Price || 0), 0);
+        const totalPaid    = payments.reduce((s, x) => s + (x.sum || x.Sum || 0), 0);
+        const managers     = users.filter(u => (u.role || u.Role) === 3);
+
+        grid.innerHTML = `
+            <div class="stat-card featured">
+                <div>
+                    <div class="stat-label">Общая выручка</div>
+                    <div class="stat-value">${fmt(totalRevenue)} ₽</div>
+                    <div class="stat-sublabel">Оплачено: ${fmt(totalPaid)} ₽ · Долг: ${fmt(totalRevenue - totalPaid)} ₽</div>
+                </div>
+                <div class="stat-badge">Активно</div>
             </div>
-          </div>
-          <span class="stat-badge">Активно</span>
-        </div>`;
-      if (s.wide) return `
-        <div class="stat-card wide">
-          <div class="stat-icon large" style="color:var(--accent)">${icons[s.key]}</div>
-          <div class="stat-divider"></div>
-          <div class="stat-body">
-            <div class="stat-label">${s.label}</div>
-            <div class="stat-value">${count}</div>
-            <div class="stat-sublabel">${s.sub}</div>
-          </div>
-        </div>`;
-      return `
-        <div class="stat-card">
-          <div class="stat-icon" style="color:var(--accent)">${icons[s.key]}</div>
-          <div class="stat-body">
-            <div class="stat-label">${s.label}</div>
-            <div class="stat-value" style="font-size:46px">${count}</div>
-            <div class="stat-sublabel">${s.sub}</div>
-          </div>
-        </div>`;
-    }).join('');
-  } catch { grid.innerHTML = '<div class="empty">Не удалось загрузить данные</div>'; }
+            <div class="stat-card">
+                <div class="stat-icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3h18v4H3zM3 10h18v4H3zM3 17h18v4H3z"/></svg></div>
+                <div class="stat-body">
+                    <div class="stat-label">Продажи</div>
+                    <div class="stat-value">${sales.length}</div>
+                    <div class="stat-sublabel">Всего сделок</div>
+                </div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="3" width="15" height="13"/><path d="M16 8l5 0"/><path d="M16 11l5 0"/><path d="M16 14l5 0"/></svg></div>
+                <div class="stat-body">
+                    <div class="stat-label">Автомобили</div>
+                    <div class="stat-value">${cars.length}</div>
+                    <div class="stat-sublabel">В каталоге</div>
+                </div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="7" r="4"/><path d="M5.5 20a8.38 8.38 0 0113 0"/></svg></div>
+                <div class="stat-body">
+                    <div class="stat-label">Менеджеры</div>
+                    <div class="stat-value">${managers.length}</div>
+                    <div class="stat-sublabel">Активных</div>
+                </div>
+            </div>
+        `;
+
+        if (isAdminOrDirector()) {
+            const managerSales = {};
+            sales.forEach(s => {
+                const mid = s.managerId || s.ManagerId;
+                if (mid) managerSales[mid] = (managerSales[mid] || 0) + 1;
+            });
+            const sorted = Object.entries(managerSales).sort((a, b) => b[1] - a[1]).slice(0, 5);
+            const topMgrHtml = sorted.map(([mid, cnt]) => {
+                const mgr = users.find(u => u.id === parseInt(mid));
+                return `<tr>
+                    <td style="color:var(--text)">${mgr?.name || 'Менеджер #' + mid}</td>
+                    <td style="color:var(--accent2);font-weight:600">${cnt}</td>
+                </tr>`;
+            }).join('') || `<tr><td colspan="2" style="color:var(--muted)">Нет данных</td></tr>`;
+
+            const recent = [...sales]
+                .sort((a, b) => new Date(b.date || b.Date) - new Date(a.date || a.Date))
+                .slice(0, 6);
+            const recentHtml = recent.map(s => `<tr>
+                <td style="color:var(--text)">${s.brand || s.Brand}</td>
+                <td>${fmtDate(s.date || s.Date)}</td>
+                <td style="color:var(--accent2)">${fmt(s.price || s.Price)} ₽</td>
+            </tr>`).join('') || `<tr><td colspan="3" style="color:var(--muted)">Нет продаж</td></tr>`;
+
+            const extra = document.createElement('div');
+            extra.style.cssText = 'grid-column:1/-1;display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:4px';
+            extra.innerHTML = `
+                <div class="table-wrap" style="padding:20px 24px">
+                    <div style="font-family:'Barlow Condensed',sans-serif;font-size:13px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--muted);margin-bottom:14px">ТОП МЕНЕДЖЕРЫ</div>
+                    <table><tbody>${topMgrHtml}</tbody></table>
+                </div>
+                <div class="table-wrap" style="padding:20px 24px">
+                    <div style="font-family:'Barlow Condensed',sans-serif;font-size:13px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--muted);margin-bottom:14px">ПОСЛЕДНИЕ ПРОДАЖИ</div>
+                    <table><tbody>${recentHtml}</tbody></table>
+                </div>
+            `;
+            grid.appendChild(extra);
+        }
+    } catch (e) {
+        grid.innerHTML = '<div class="empty">Ошибка загрузки данных</div>';
+        showToast('Ошибка загрузки дашборда', 'error');
+    }
 }
 
-// ─────────────────────────────────────────────
-//  CARS  ✅ исправлено
-// ─────────────────────────────────────────────
+// ========================
+// CARS
+// ========================
 async function loadCars() {
-  showLoader('carsBody');
-  try {
-    const cars = await api('GET', '/cars');
-    _carsCache = cars;
-    if (!cars.length) { showEmpty('carsBody'); return; }
-    const canWrite = ACCESS.cars.write.includes(currentUser.role);
-    $('carsBody').innerHTML = cars.map(c => `
-      <tr>
-        <td>${c.id}</td>
-        <td>${c.brand}</td>
-        <td>${c.year ? new Date(c.year).getFullYear() : '—'}</td>
-        <td>${Number(c.price).toLocaleString('ru')} ₽</td>
-        <td>${c.state}</td>
-        <td>${canWrite ? `
-          <button class="btn-sm" onclick="editCar(${c.id})">Ред.</button>
-          <button class="btn-sm danger" onclick="deleteCar(${c.id})">Удал.</button>
-        ` : '—'}</td>
-      </tr>`).join('');
-  } catch { showEmpty('carsBody'); }
-}
+    document.getElementById('carsBody').innerHTML = '<tr><td colspan="6"><div class="loader"></div></td></tr>';
+    const res = await apiFetch('/cars');
+    carsCache = await res.json();
 
-// ✅ Открываем модальное окно с реальными данными из API
-async function editCar(id) {
-  try {
-    const car = await api('GET', `/cars/${id}`);
-    openCarModal(car);
-  } catch {}
-}
+    if (!carsCache.length) {
+        document.getElementById('carsBody').innerHTML = '<tr><td colspan="6"><div class="empty">Нет автомобилей</div></td></tr>';
+        return;
+    }
 
-function openCarModal(car = null) {
-  modalMode   = car ? 'edit' : 'create';
-  modalEntity = 'cars';
-  editId      = car?.id ?? null;
-
-  $('modalTitle').textContent = car ? 'Редактировать автомобиль' : 'Новый автомобиль';
-
-  const yearVal = car?.year
-    ? new Date(car.year).getFullYear()
-    : new Date().getFullYear();
-
-  $('modalFields').innerHTML = `
-    <div class="field-group">
-      <label>Марка / Модель</label>
-      <input id="f_brand" value="${car?.brand ?? ''}" placeholder="Toyota Camry"/>
-      <div class="field-error" id="err_brand"></div>
-    </div>
-    <div class="field-group">
-      <label>Год выпуска</label>
-      <input id="f_year" type="number" min="1900" max="2100" value="${yearVal}"/>
-      <div class="field-error" id="err_year"></div>
-    </div>
-    <div class="field-group">
-      <label>Цена (₽)</label>
-      <input id="f_price" type="number" min="0" max="999999999" value="${car?.price ?? ''}" placeholder="1500000"
-             oninput="validateCarPrice()"/>
-      <div class="field-error" id="err_price"></div>
-    </div>
-    <div class="field-group">
-      <label>Состояние</label>
-      <input id="f_state" value="${car?.state ?? ''}" placeholder="Новый / Б/у"/>
-      <div class="field-error" id="err_state"></div>
-    </div>`;
-
-  openModal();
-}
-
-function validateCarPrice() {
-  const el  = $('f_price');
-  const err = $('err_price');
-  if (!el || !err) return true;
-  const raw = el.value;
-  // Запрещаем буквы — input type=number уже не пропускает их в большинстве браузеров,
-  // но на всякий случай чистим
-  el.value = raw.replace(/[^0-9]/g, '');
-  const val = +el.value;
-  if (el.value === '') { err.textContent = 'Введите цену'; return false; }
-  if (val < 0)         { err.textContent = 'Цена не может быть отрицательной'; return false; }
-  if (val > 999999999) { err.textContent = 'Цена слишком большая (макс. 999 999 999)'; return false; }
-  err.textContent = '';
-  return true;
+    document.getElementById('carsBody').innerHTML = carsCache.map(c => `
+        <tr>
+            <td>${c.id}</td>
+            <td style="color:var(--text)">${c.brand || c.Brand || '—'}</td>
+            <td>${c.year ? new Date(c.year).getFullYear() : (c.Year ? new Date(c.Year).getFullYear() : '—')}</td>
+            <td>${fmt(c.price || c.Price || 0)} ₽</td>
+            <td>${c.state || c.State || '—'}</td>
+            <td>
+                ${canModifyCars() ? `
+                    <button class="btn-sm" onclick="openCarModal(${c.id})">Изм.</button>
+                    <button class="btn-sm danger" onclick="deleteCar(${c.id})">Удал.</button>
+                ` : '—'}
+            </td>
+        </tr>
+    `).join('');
 }
 
 async function deleteCar(id) {
-  if (!confirm('Удалить автомобиль?')) return;
-  await api('DELETE', `/cars/${id}`);
-  _carsCache = null;
-  toast('Автомобиль удалён');
-  loadCars();
+    if (!confirm('Удалить автомобиль?')) return;
+    await apiFetch(`/cars/${id}`, { method: 'DELETE' });
+    showToast('Автомобиль удалён');
+    loadCars();
 }
 
-// ─────────────────────────────────────────────
-//  USERS
-// ─────────────────────────────────────────────
-async function loadUsers() {
-  showLoader('usersBody');
-  try {
-    const users = await api('GET', '/users');
-    _usersCache = users;
-    if (!users.length) { showEmpty('usersBody'); return; }
-    $('usersBody').innerHTML = users.map(u => `
-      <tr>
-        <td>${u.id}</td><td>${u.name}</td><td>${u.login}</td>
-        <td>${u.phone}</td><td>${u.email}</td><td>${ROLES[u.role] ?? u.role}</td>
-        <td>
-          <button class="btn-sm" onclick="editUser(${u.id})">Ред.</button>
-          <button class="btn-sm danger" onclick="deleteUser(${u.id})">Удал.</button>
-        </td>
-      </tr>`).join('');
-  } catch { showEmpty('usersBody'); }
+function openCarModal(id = null) {
+    modalEntity = 'car';
+    editId = id;
+    const car = id ? carsCache.find(c => c.id === id) : null;
+
+    openModal(id ? 'Редактировать автомобиль' : 'Добавить автомобиль', `
+        <div class="field-group"><label>Марка <span style="color:#e74c3c">*</span></label>
+            <input id="fBrand" value="${car?.brand || car?.Brand || ''}" placeholder="Toyota Camry" />
+        </div>
+        <div class="field-group"><label>Год выпуска <span style="color:#e74c3c">*</span></label>
+            <input type="date" id="fYear" value="${car ? new Date(car.year || car.Year).toISOString().slice(0,10) : ''}" />
+        </div>
+        <div class="field-group"><label>Цена (₽) <span style="color:#e74c3c">*</span></label>
+            <input type="number" id="fPrice" value="${car?.price || car?.Price || ''}" placeholder="1500000" />
+        </div>
+        <div class="field-group"><label>Состояние</label>
+            <select id="fState">
+                <option value="Новый" ${(car?.state || car?.State) === 'Новый' ? 'selected' : ''}>Новый</option>
+                <option value="С пробегом" ${(car?.state || car?.State) === 'С пробегом' ? 'selected' : ''}>С пробегом</option>
+            </select>
+        </div>
+    `);
 }
 
-function openUserModal(user = null) {
-  modalMode = user ? 'edit' : 'create'; modalEntity = 'users'; editId = user?.id ?? null;
-  $('modalTitle').textContent = user ? 'Редактировать пользователя' : 'Новый пользователь';
-  const roleOpts = Object.entries(ROLES).map(([v,n]) =>
-    `<option value="${v}" ${user?.role == v ? 'selected' : ''}>${n}</option>`).join('');
-  $('modalFields').innerHTML = `
-    <div class="field-group"><label>Имя</label><input id="f_name" value="${user?.name ?? ''}"/></div>
-    <div class="field-group"><label>Логин</label><input id="f_login" value="${user?.login ?? ''}"/></div>
-    <div class="field-group"><label>Пароль</label><input id="f_password" type="password" value="${user?.password ?? ''}"/></div>
-    <div class="field-group"><label>Телефон</label><input id="f_phone" value="${user?.phone ?? ''}"/></div>
-    <div class="field-group"><label>Email</label><input id="f_email" type="email" value="${user?.email ?? ''}"/></div>
-    <div class="field-group"><label>Роль</label><select id="f_role">${roleOpts}</select></div>`;
-  openModal();
-}
-
-async function editUser(id) { try { openUserModal(await api('GET', `/users/${id}`)); } catch {} }
-async function deleteUser(id) {
-  if (!confirm('Удалить пользователя?')) return;
-  await api('DELETE', `/users/${id}`);
-  _usersCache = null;
-  toast('Пользователь удалён');
-  loadUsers();
-}
-
-// ─────────────────────────────────────────────
-//  SALES
-// ─────────────────────────────────────────────
+// ========================
+// SALES
+// ========================
 async function loadSales() {
-  showLoader('salesBody');
-  try {
-    const sales = await api('GET', '/sales');
-    _salesCache = sales;
-    if (!sales.length) { showEmpty('salesBody'); return; }
-    const canWrite = ACCESS.sales.write.includes(currentUser.role);
-    $('salesBody').innerHTML = sales.map(s => `
-      <tr>
-        <td>${s.id}</td><td>${s.brand}</td>
-        <td>${s.date ? new Date(s.date).toLocaleDateString('ru') : '—'}</td>
-        <td>${Number(s.price).toLocaleString('ru')} ₽</td>
-        <td>${s.clientId}</td><td>${s.managerId}</td>
-        <td>${canWrite ? `
-          <button class="btn-sm" onclick="editSale(${s.id})">Ред.</button>
-          <button class="btn-sm danger" onclick="deleteSale(${s.id})">Удал.</button>
-        ` : '—'}</td>
-      </tr>`).join('');
-  } catch { showEmpty('salesBody'); }
-}
+    document.getElementById('salesBody').innerHTML = '<tr><td colspan="7"><div class="loader"></div></td></tr>';
+    const [sRes, uRes, cRes] = await Promise.all([
+        apiFetch('/sales'), apiFetch('/users'), apiFetch('/cars')
+    ]);
+    salesCache  = await sRes.json();
+    usersCache  = await uRes.json();
+    carsCache   = await cRes.json();
 
-async function openSaleModal(sale = null) {
-  modalMode = sale ? 'edit' : 'create'; modalEntity = 'sales'; editId = sale?.id ?? null;
-  $('modalTitle').textContent = sale ? 'Редактировать продажу' : 'Новая продажа';
-  $('modalFields').innerHTML = `
-    <div class="field-group"><label>Дата</label><input id="f_date" type="date" value="${sale?.date ? sale.date.substring(0,10) : new Date().toISOString().substring(0,10)}"/></div>
-    <div class="field-group"><label>Клиент</label><div id="wrap_clientId">${selectLoading('f_clientId')}</div></div>
-    <div class="field-group"><label>Автомобиль</label><div id="wrap_carId">${selectLoading('f_carId')}</div></div>
-    <div class="field-group"><label>Марка / Модель</label><input id="f_brand" value="${sale?.brand ?? ''}" placeholder="Заполнится автоматически"/></div>
-    <div class="field-group"><label>Цена (₽)</label><input id="f_price" type="number" value="${sale?.price ?? ''}" placeholder="Заполнится автоматически"/></div>
-    <div class="field-group"><label>Менеджер</label><div id="wrap_managerId">${selectLoading('f_managerId')}</div></div>`;
-  openModal();
-  try {
-    const [users, cars] = await Promise.all([getUsers(), getCars()]);
-    const clients  = users
-      .filter(u => u.role === ROLE.USER)
-      .map(u => ({ value: u.id, label: `${u.name} (${u.login})` }));
-    const managers = users
-      .filter(u => u.role === ROLE.MANAGER)
-      .map(u => ({ value: u.id, label: `${u.name} (${ROLES[u.role]})` }));
-    const carOpts  = cars.map(c => ({
-      value: c.id,
-      label: `${c.brand}, ${c.year ? new Date(c.year).getFullYear() : '?'} — ${Number(c.price).toLocaleString('ru')} ₽ [${c.state}]`,
-      brand: c.brand,
-      price: c.price,
-    }));
-
-    $('wrap_clientId').innerHTML  = buildSelect('f_clientId',  clients,  sale?.clientId,  '— Выберите клиента —');
-    $('wrap_managerId').innerHTML = buildSelect('f_managerId', managers, sale?.managerId, '— Выберите менеджера —');
-
-    // Select авто с автозаполнением марки и цены
-    const carSelectHtml = `<select id="f_carId">
-      <option value="">— Выберите автомобиль —</option>
-      ${carOpts.map(o => `<option value="${o.value}" data-brand="${o.brand}" data-price="${o.price}" ${o.value == sale?.carId ? 'selected' : ''}>${o.label}</option>`).join('')}
-    </select>`;
-    $('wrap_carId').innerHTML = carSelectHtml;
-
-    // Автозаполнение при выборе авто
-    $('f_carId').addEventListener('change', function() {
-      const opt = this.options[this.selectedIndex];
-      if (opt.value) {
-        $('f_brand').value = opt.dataset.brand || '';
-        $('f_price').value = opt.dataset.price || '';
-      }
-    });
-
-    // Если редактируем — сразу подставляем данные выбранного авто
-    if (sale?.carId) {
-      const found = carOpts.find(o => o.value == sale.carId);
-      if (found) {
-        $('f_brand').value = sale.brand || found.brand;
-        $('f_price').value = sale.price || found.price;
-      }
+    if (!salesCache.length) {
+        document.getElementById('salesBody').innerHTML = '<tr><td colspan="7"><div class="empty">Нет продаж</div></td></tr>';
+        return;
     }
-  } catch {
-    $('wrap_clientId').innerHTML  = `<input id="f_clientId"  type="number" value="${sale?.clientId  ?? ''}" placeholder="ID клиента"/>`;
-    $('wrap_carId').innerHTML     = `<input id="f_carId"     type="number" value="${sale?.carId     ?? ''}" placeholder="ID автомобиля"/>`;
-    $('wrap_managerId').innerHTML = `<input id="f_managerId" type="number" value="${sale?.managerId ?? ''}" placeholder="ID менеджера"/>`;
-  }
-}
 
-async function editSale(id) { try { await openSaleModal(await api('GET', `/sales/${id}`)); } catch {} }
-async function deleteSale(id) {
-  if (!confirm('Удалить продажу?')) return;
-  await api('DELETE', `/sales/${id}`);
-  _salesCache = null;
-  toast('Продажа удалена');
-  loadSales();
-}
-
-// ─────────────────────────────────────────────
-//  PAYMENTS
-// ─────────────────────────────────────────────
-async function loadPayments() {
-  showLoader('paymentsBody');
-  try {
-    const payments = await api('GET', '/payments');
-    if (!payments.length) { showEmpty('paymentsBody'); return; }
-    const canWrite = ACCESS.payments.write.includes(currentUser.role);
-    $('paymentsBody').innerHTML = payments.map(p => `
-      <tr>
-        <td>${p.id}</td>
-        <td>${Number(p.sum).toLocaleString('ru')} ₽</td>
-        <td>${p.dateTime ? new Date(p.dateTime).toLocaleString('ru') : '—'}</td>
-        <td>${p.saleId}</td>
-        <td>${canWrite ? `
-          <button class="btn-sm" onclick="editPayment(${p.id})">Ред.</button>
-          <button class="btn-sm danger" onclick="deletePayment(${p.id})">Удал.</button>
-        ` : '—'}</td>
-      </tr>`).join('');
-  } catch { showEmpty('paymentsBody'); }
-}
-
-async function openPaymentModal(p = null) {
-  modalMode = p ? 'edit' : 'create'; modalEntity = 'payments'; editId = p?.id ?? null;
-  $('modalTitle').textContent = p ? 'Редактировать платёж' : 'Новый платёж';
-  $('modalFields').innerHTML = `
-    <div class="field-group"><label>Продажа</label><div id="wrap_saleId">${selectLoading('f_saleId')}</div></div>
-    <div class="field-group"><label>Сумма (₽)</label><input id="f_sum" type="number" value="${p?.sum ?? ''}" placeholder="Заполнится автоматически"/></div>
-    <div class="field-group"><label>Дата и время</label><input id="f_dateTime" type="datetime-local" value="${p?.dateTime ? p.dateTime.substring(0,16) : new Date().toISOString().substring(0,16)}"/></div>`;
-  openModal();
-  try {
-    const sales = await getSales();
-    const saleOpts = sales.map(s => ({
-      value: s.id,
-      price: s.price,
-      label: `#${s.id} — ${s.brand}, ${s.date ? new Date(s.date).toLocaleDateString('ru') : '?'}, ${Number(s.price).toLocaleString('ru')} ₽`,
-    }));
-
-    const opts = saleOpts.map(o =>
-      `<option value="${o.value}" data-price="${o.price}" ${o.value == p?.saleId ? 'selected' : ''}>${o.label}</option>`
-    ).join('');
-    $('wrap_saleId').innerHTML = `<select id="f_saleId"><option value="">— Выберите продажу —</option>${opts}</select>`;
-
-    // Автозаполнение суммы при выборе продажи
-    $('f_saleId').addEventListener('change', function() {
-      const opt = this.options[this.selectedIndex];
-      if (opt.value) $('f_sum').value = opt.dataset.price || '';
-    });
-
-    // Если редактируем — подставляем сумму сразу
-    if (p?.saleId) {
-      const found = saleOpts.find(o => o.value == p.saleId);
-      if (found && !p.sum) $('f_sum').value = found.price;
-    }
-  } catch {
-    $('wrap_saleId').innerHTML = `<input id="f_saleId" type="number" value="${p?.saleId ?? ''}" placeholder="ID продажи"/>`;
-  }
-}
-
-async function editPayment(id) { try { await openPaymentModal(await api('GET', `/payments/${id}`)); } catch {} }
-async function deletePayment(id) {
-  if (!confirm('Удалить платёж?')) return;
-  await api('DELETE', `/payments/${id}`);
-  toast('Платёж удалён');
-  loadPayments();
-}
-
-// ─────────────────────────────────────────────
-//  APPLICATIONS
-// ─────────────────────────────────────────────
-async function loadApplications() {
-  showLoader('applicationsBody');
-  try {
-    const [apps, cars] = await Promise.all([api('GET', '/applications'), getCars()]);
-    if (!apps.length) { showEmpty('applicationsBody'); return; }
-    const canWrite = ACCESS.applications.write.includes(currentUser.role);
-    $('applicationsBody').innerHTML = apps.map(a => {
-      const car = cars.find(c => c.id === a.carId);
-      const carLabel = car ? `${car.brand}, ${car.year ? new Date(car.year).getFullYear() : '?'}` : '—';
-      return `<tr>
-        <td>${a.id}</td>
-        <td>${a.dateTime ? new Date(a.dateTime).toLocaleString('ru') : '—'}</td>
-        <td>${carLabel}</td>
-        <td>${canWrite ? `
-          <button class="btn-sm" onclick="editApplication(${a.id})">Ред.</button>
-          <button class="btn-sm danger" onclick="deleteApplication(${a.id})">Удал.</button>
-        ` : '—'}</td>
-      </tr>`;
+    document.getElementById('salesBody').innerHTML = salesCache.map(s => {
+        const client = usersCache.find(u => u.id === (s.clientId || s.ClientId));
+        const mgr    = usersCache.find(u => u.id === (s.managerId || s.ManagerId));
+        return `<tr>
+            <td>${s.id}</td>
+            <td style="color:var(--text)">${s.brand || s.Brand || '—'}</td>
+            <td>${fmtDate(s.date || s.Date)}</td>
+            <td>${fmt(s.price || s.Price || 0)} ₽</td>
+            <td>${client?.name || s.clientId || '—'}</td>
+            <td>${mgr?.name || s.managerId || '—'}</td>
+            <td>
+                ${canSell() ? `<button class="btn-sm danger" onclick="deleteSale(${s.id})">Удал.</button>` : '—'}
+            </td>
+        </tr>`;
     }).join('');
-  } catch { showEmpty('applicationsBody'); }
 }
 
-async function openApplicationModal(a = null) {
-  modalMode = a ? 'edit' : 'create'; modalEntity = 'applications'; editId = a?.id ?? null;
-  $('modalTitle').textContent = a ? 'Редактировать заявку' : 'Новая заявка';
-  $('modalFields').innerHTML = `
-    <div class="field-group"><label>Дата и время</label><input id="f_dateTime" type="datetime-local" value="${a?.dateTime ? a.dateTime.substring(0,16) : new Date().toISOString().substring(0,16)}"/></div>
-    <div class="field-group"><label>Автомобиль</label><div id="wrap_carId">${selectLoading('f_carId')}</div></div>`;
-  openModal();
-  try {
-    const cars = await getCars();
-    const opts = cars.map(c =>
-      `<option value="${c.id}" ${c.id == a?.carId ? 'selected' : ''}>${c.brand}, ${c.year ? new Date(c.year).getFullYear() : '?'} — ${Number(c.price).toLocaleString('ru')} ₽ [${c.state}]</option>`
-    ).join('');
-    $('wrap_carId').innerHTML = `<select id="f_carId"><option value="">— Выберите автомобиль —</option>${opts}</select>`;
-  } catch {
-    $('wrap_carId').innerHTML = `<input id="f_carId" type="number" value="${a?.carId ?? ''}" placeholder="ID автомобиля"/>`;
-  }
+async function deleteSale(id) {
+    if (!confirm('Удалить продажу?')) return;
+    await apiFetch(`/sales/${id}`, { method: 'DELETE' });
+    showToast('Продажа удалена');
+    loadSales();
 }
 
-async function editApplication(id) { try { await openApplicationModal(await api('GET', `/applications/${id}`)); } catch {} }
-async function deleteApplication(id) {
-  if (!confirm('Удалить заявку?')) return;
-  await api('DELETE', `/applications/${id}`);
-  toast('Заявка удалена');
-  loadApplications();
+function onSaleCarChange(selectEl) {
+    const carId = parseInt(selectEl.value);
+    const car   = carsCache.find(c => c.id === carId);
+    if (!car) return;
+    const brandField = document.getElementById('fSaleBrand');
+    const priceField = document.getElementById('fSalePrice');
+    if (brandField) brandField.value = car.brand || car.Brand || '';
+    if (priceField) priceField.value = car.price || car.Price || '';
 }
 
-// ─────────────────────────────────────────────
-//  MODAL SAVE
-// ─────────────────────────────────────────────
-function getVal(id) { const el = document.getElementById(id); return el ? el.value : undefined; }
+async function openSaleModal() {
+    modalEntity = 'sale';
+    editId = null;
 
-async function saveModal() {
-  const method = modalMode === 'create' ? 'POST' : 'PUT';
-  let body = {}, path = '';
-  try {
-    if (modalEntity === 'cars') {
-      const brand = getVal('f_brand');
-      const year  = getVal('f_year');
-      const price = getVal('f_price');
-      const state = getVal('f_state');
-      if (!brand) { $('err_brand') && ($('err_brand').textContent = 'Введите марку'); return; }
-      if (!year || +year < 1900 || +year > 2100) { $('err_year') && ($('err_year').textContent = 'Введите корректный год'); return; }
-      if (!validateCarPrice()) return;
-      if (!state) { $('err_state') && ($('err_state').textContent = 'Введите состояние'); return; }
-      body = {
-        brand,
-        year:  new Date(Date.UTC(+year, 0, 1)).toISOString(),
-        price: +price,
-        state,
-      };
-      path = modalMode === 'edit' ? `/cars/${editId}` : '/cars';
+    const [uRes, cRes] = await Promise.all([apiFetch('/users'), apiFetch('/cars')]);
+    const users = await uRes.json();
+    const cars  = await cRes.json();
+    carsCache   = cars;
 
-    } else if (modalEntity === 'users') {
-      body = { name: getVal('f_name'), login: getVal('f_login'), password: getVal('f_password'), phone: getVal('f_phone'), email: getVal('f_email'), role: +getVal('f_role') };
-      path = modalMode === 'edit' ? `/users/${editId}` : '/users';
+    const clients  = users.filter(u => (u.role || u.Role) === 1);
+    const managers = users.filter(u => (u.role || u.Role) === 3);
 
-    } else if (modalEntity === 'sales') {
-      const clientId  = getVal('f_clientId');
-      const carId     = getVal('f_carId');
-      const managerId = getVal('f_managerId');
-      const brand     = getVal('f_brand');
-      const price     = getVal('f_price');
-      const date      = getVal('f_date');
-      if (!clientId)  { toast('Выберите клиента', true); return; }
-      if (!carId)     { toast('Выберите автомобиль', true); return; }
-      if (!managerId) { toast('Выберите менеджера', true); return; }
-      if (!brand)     { toast('Марка не заполнена — выберите автомобиль', true); return; }
-      if (!price || +price <= 0)  { toast('Введите цену', true); return; }
-      if (+price > 100000000)     { toast('Цена не может превышать 100 000 000 ₽', true); return; }
-      body = {
-        brand,
-        date:      new Date(date).toISOString(),
-        price:     Math.round(+price),   // Sale.Price — int
-        clientId:  +clientId,
-        carId:     +carId,
-        managerId: +managerId,
-      };
-      path = modalMode === 'edit' ? `/sales/${editId}` : '/sales';
+    const first = cars[0] || null;
 
-    } else if (modalEntity === 'payments') {
-      const saleId = getVal('f_saleId');
-      const sum    = getVal('f_sum');
-      if (!saleId)              { toast('Выберите продажу', true); return; }
-      if (!sum || +sum <= 0)    { toast('Введите сумму', true); return; }
-      if (+sum > 100000000)     { toast('Сумма не может превышать 100 000 000 ₽', true); return; }
-      body = { sum: Math.round(+sum), dateTime: new Date(getVal('f_dateTime')).toISOString(), saleId: +saleId };
-      path = modalMode === 'edit' ? `/payments/${editId}` : '/payments';
+    openModal('Новая продажа', `
+        <div class="field-group"><label>Автомобиль <span style="color:#e74c3c">*</span></label>
+            <select id="fSaleCarId" onchange="onSaleCarChange(this)">
+                ${cars.length
+                    ? cars.map(c => `<option value="${c.id}">${c.brand || c.Brand} — ${fmt(c.price || c.Price || 0)} ₽ (${c.state || c.State})</option>`).join('')
+                    : '<option value="">Нет автомобилей</option>'}
+            </select>
+        </div>
+        <div class="field-group"><label>Марка автомобиля</label>
+            <input id="fSaleBrand"
+                   value="${first ? (first.brand || first.Brand || '') : ''}"
+                   placeholder="Заполняется автоматически"
+                   readonly style="opacity:0.7;cursor:default" />
+        </div>
+        <div class="field-group"><label>Цена (₽)</label>
+            <input type="number" id="fSalePrice"
+                   value="${first ? (first.price || first.Price || '') : ''}"
+                   placeholder="Заполняется автоматически"
+                   readonly style="opacity:0.7;cursor:default" />
+        </div>
+        <div class="field-group"><label>Дата <span style="color:#e74c3c">*</span></label>
+            <input type="date" id="fSaleDate" value="${new Date().toISOString().slice(0,10)}" />
+        </div>
+        <div class="field-group"><label>Клиент <span style="color:#e74c3c">*</span></label>
+            <select id="fSaleClientId">
+                ${clients.length
+                    ? clients.map(c => `<option value="${c.id}">${c.name}</option>`).join('')
+                    : '<option value="">Нет пользователей</option>'}
+            </select>
+        </div>
+        <div class="field-group"><label>Менеджер <span style="color:#e74c3c">*</span></label>
+            <select id="fSaleManagerId">
+                ${managers.length
+                    ? managers.map(m => `<option value="${m.id}" ${m.id === currentUser?.id ? 'selected' : ''}>${m.name}</option>`).join('')
+                    : '<option value="">Нет менеджеров</option>'}
+            </select>
+        </div>
+    `);
+}
 
-    } else if (modalEntity === 'applications') {
-      const carId = getVal('f_carId');
-      if (!carId) { toast('Выберите автомобиль', true); return; }
-      body = { dateTime: new Date(getVal('f_dateTime')).toISOString(), carId: +carId };
-      path = modalMode === 'edit' ? `/applications/${editId}` : '/applications';
+// ========================
+// APPLICATIONS
+// ========================
+async function loadApplications() {
+    document.getElementById('applicationsBody').innerHTML = '<tr><td colspan="4"><div class="loader"></div></td></tr>';
+    const [aRes, cRes] = await Promise.all([apiFetch('/applications'), apiFetch('/cars')]);
+    const apps = await aRes.json();
+    carsCache  = await cRes.json();
+
+    if (!apps.length) {
+        document.getElementById('applicationsBody').innerHTML = '<tr><td colspan="4"><div class="empty">Нет заявок</div></td></tr>';
+        return;
     }
 
-    await api(method, path, body);
-
-    if (modalEntity === 'cars')  _carsCache  = null;
-    if (modalEntity === 'users') _usersCache = null;
-    if (modalEntity === 'sales') _salesCache = null;
-
-    toast(modalMode === 'create' ? 'Успешно создано' : 'Успешно обновлено');
-    closeModal();
-    ({ cars: loadCars, users: loadUsers, sales: loadSales, payments: loadPayments, applications: loadApplications })[modalEntity]?.();
-  } catch {}
+    document.getElementById('applicationsBody').innerHTML = apps.map(a => {
+        const car = carsCache.find(c => c.id === (a.carId || a.CarId));
+        return `<tr>
+            <td>${a.id}</td>
+            <td>${fmtDate(a.dateTime || a.DateTime)}</td>
+            <td style="color:var(--text)">${car ? (car.brand || car.Brand) : '—'}</td>
+            <td>
+                <button class="btn-sm danger" onclick="deleteApplication(${a.id})">Удал.</button>
+            </td>
+        </tr>`;
+    }).join('');
 }
 
-// ─────────────────────────────────────────────
-//  MODAL OPEN / CLOSE
-// ─────────────────────────────────────────────
-function openModal() {
-  $('modalOverlay').classList.add('open');
-  setTimeout(() => { const first = $('modalFields').querySelector('input,select'); if (first) first.focus(); }, 200);
+async function deleteApplication(id) {
+    if (!confirm('Удалить заявку?')) return;
+    await apiFetch(`/applications/${id}`, { method: 'DELETE' });
+    showToast('Заявка удалена');
+    loadApplications();
 }
-function closeModal() { $('modalOverlay').classList.remove('open'); }
 
-// ─────────────────────────────────────────────
-//  BOOT
-// ─────────────────────────────────────────────
-document.addEventListener('DOMContentLoaded', () => {
-  const saved = sessionStorage.getItem('autosalon_user');
-  if (saved) { currentUser = JSON.parse(saved); initApp(); }
+async function openApplicationModal() {
+    modalEntity = 'application';
+    editId = null;
 
-  $('loginBtn').onclick    = doLogin;
-  $('registerBtn').onclick = doRegister;
-  $('logoutBtn').onclick   = doLogout;
+    const cRes = await apiFetch('/cars');
+    const cars = await cRes.json();
 
-  $('loginInput').onkeydown    = e => { if (e.key === 'Enter') $('passwordInput').focus(); };
-  $('passwordInput').onkeydown = e => { if (e.key === 'Enter') doLogin(); };
-  $('regEmail').onkeydown      = e => { if (e.key === 'Enter') doRegister(); };
+    openModal('Новая заявка', `
+        <div class="field-group"><label>Дата и время <span style="color:#e74c3c">*</span></label>
+            <input type="datetime-local" id="fAppDate" value="${new Date().toISOString().slice(0,16)}" />
+        </div>
+        <div class="field-group"><label>Автомобиль <span style="color:#e74c3c">*</span></label>
+            <select id="fAppCarId">
+                ${cars.length
+                    ? cars.map(c => `<option value="${c.id}">${c.brand || c.Brand} (${c.state || c.State})</option>`).join('')
+                    : '<option value="">Нет автомобилей</option>'}
+            </select>
+        </div>
+    `);
+}
 
-  $('addCarBtn').onclick         = () => openCarModal();
-  $('addUserBtn').onclick        = () => openUserModal();
-  $('addSaleBtn').onclick        = () => openSaleModal();
-  $('addPaymentBtn').onclick     = () => openPaymentModal();
-  $('addApplicationBtn').onclick = () => openApplicationModal();
+// ========================
+// PAYMENTS
+// ========================
+async function loadPayments() {
+    document.getElementById('paymentsBody').innerHTML = '<tr><td colspan="5"><div class="loader"></div></td></tr>';
+    const [pRes, sRes, uRes] = await Promise.all([
+        apiFetch('/payments'), apiFetch('/sales'), apiFetch('/users')
+    ]);
+    const payments = await pRes.json();
+    salesCache     = await sRes.json();
+    usersCache     = await uRes.json();
 
-  $('modalCancel').onclick  = closeModal;
-  $('modalSave').onclick    = saveModal;
-  $('modalOverlay').onclick = e => { if (e.target === $('modalOverlay')) closeModal(); };
+    if (!payments.length) {
+        document.getElementById('paymentsBody').innerHTML = '<tr><td colspan="5"><div class="empty">Нет платежей</div></td></tr>';
+        return;
+    }
+
+    document.getElementById('paymentsBody').innerHTML = payments.map(p => {
+        const mgr = usersCache.find(u => u.id === (p.managerId || p.ManagerId));
+        return `<tr>
+            <td>${p.id}</td>
+            <td style="color:var(--accent2);font-weight:600">${fmt(p.sum || p.Sum || 0)} ₽</td>
+            <td>${fmtDate(p.dateTime || p.DateTime)}</td>
+            <td>#${p.saleId || p.SaleId}</td>
+            <td>${mgr?.name || '—'}</td>
+            <td>
+                ${canPayments() ? `<button class="btn-sm danger" onclick="deletePayment(${p.id})">Удал.</button>` : '—'}
+            </td>
+        </tr>`;
+    }).join('');
+}
+
+async function deletePayment(id) {
+    if (!confirm('Удалить платёж?')) return;
+    await apiFetch(`/payments/${id}`, { method: 'DELETE' });
+    showToast('Платёж удалён');
+    loadPayments();
+}
+
+function onPaySaleChange(selectEl) {
+    const saleId = parseInt(selectEl.value);
+    const sale   = salesCache.find(s => s.id === saleId);
+    if (!sale) return;
+    const sumField = document.getElementById('fPaySum');
+    if (sumField) sumField.value = sale.price || sale.Price || '';
+}
+
+async function openPaymentModal() {
+    modalEntity = 'payment';
+    editId = null;
+
+    const [sRes, uRes] = await Promise.all([apiFetch('/sales'), apiFetch('/users')]);
+    const sales    = await sRes.json();
+    const users    = await uRes.json();
+    salesCache     = sales;
+    const managers = users.filter(u => (u.role || u.Role) === 3);
+
+    const firstSale = sales[0] || null;
+
+    openModal('Принять оплату', `
+        <div class="field-group"><label>Продажа <span style="color:#e74c3c">*</span></label>
+            <select id="fPaySaleId" onchange="onPaySaleChange(this)">
+                ${sales.length
+                    ? sales.map(s => `<option value="${s.id}">#${s.id} — ${s.brand || s.Brand} — ${fmt(s.price || s.Price || 0)} ₽ (${fmtDate(s.date || s.Date)})</option>`).join('')
+                    : '<option value="">Нет продаж</option>'}
+            </select>
+        </div>
+        <div class="field-group"><label>Менеджер <span style="color:#e74c3c">*</span></label>
+            <select id="fPayManagerId">
+                ${managers.length
+                    ? managers.map(m => `<option value="${m.id}" ${m.id === currentUser?.id ? 'selected' : ''}>${m.name}</option>`).join('')
+                    : '<option value="">Нет менеджеров</option>'}
+            </select>
+        </div>
+        <div class="field-group"><label>Сумма (₽)</label>
+            <input type="number" id="fPaySum"
+                   value="${firstSale ? (firstSale.price || firstSale.Price || '') : ''}"
+                   placeholder="Заполняется автоматически"
+                   readonly style="opacity:0.7;cursor:default" />
+        </div>
+        <div class="field-group"><label>Дата <span style="color:#e74c3c">*</span></label>
+            <input type="datetime-local" id="fPayDate" value="${new Date().toISOString().slice(0,16)}" />
+        </div>
+        <div class="field-group"><label>Примечание</label>
+            <input id="fPayNote" placeholder="Комментарий..." />
+        </div>
+    `);
+}
+
+// ========================
+// REPORTS
+// ========================
+const PERIOD_LABELS = { 1: 'Ежедневный', 2: 'Месячный', 3: 'Квартальный', 4: 'Годовой', 5: 'Произвольный' };
+
+let reportsCache = [];
+
+async function loadReports() {
+    document.getElementById('reportsBody').innerHTML = '<tr><td colspan="10"><div class="loader"></div></td></tr>';
+    const res     = await apiFetch('/reports');
+    reportsCache  = await res.json();
+
+    if (!reportsCache.length) {
+        document.getElementById('reportsBody').innerHTML = '<tr><td colspan="10"><div class="empty">Нет отчётов</div></td></tr>';
+        return;
+    }
+
+    document.getElementById('reportsBody').innerHTML = reportsCache.map(r => `
+        <tr>
+            <td>${r.id}</td>
+            <td>${fmtDate(r.createdAt || r.CreatedAt)}</td>
+            <td>${PERIOD_LABELS[r.period || r.Period] || r.period}</td>
+            <td>${fmtDate(r.dateFrom || r.DateFrom)}</td>
+            <td>${fmtDate(r.dateTo || r.DateTo)}</td>
+            <td>${r.totalSales || r.TotalSales || 0}</td>
+            <td style="color:var(--accent2)">${fmt(r.totalRevenue || r.TotalRevenue || 0)} ₽</td>
+            <td>${fmt(r.totalPayments || r.TotalPayments || 0)} ₽</td>
+            <td>
+                <button class="btn-sm" onclick="exportReport(${r.id},'xlsx')" title="Excel">XLS</button>
+                <button class="btn-sm" onclick="exportReport(${r.id},'csv')"  title="CSV">CSV</button>
+                <button class="btn-sm" onclick="exportReport(${r.id},'txt')"  title="Текст">TXT</button>
+            </td>
+            <td>
+                <button class="btn-sm danger" onclick="deleteReport(${r.id})">Удал.</button>
+            </td>
+        </tr>
+    `).join('');
+}
+
+// ========================
+// CLIENT-SIDE EXPORT
+// ========================
+function exportReport(id, format) {
+    const r = reportsCache.find(x => x.id === id);
+    if (!r) { showToast('Отчёт не найден', 'error'); return; }
+
+    const period   = PERIOD_LABELS[r.period || r.Period] || '—';
+    const created  = fmtDate(r.createdAt  || r.CreatedAt);
+    const dateFrom = fmtDate(r.dateFrom   || r.DateFrom);
+    const dateTo   = fmtDate(r.dateTo     || r.DateTo);
+    const sales    = r.totalSales    || r.TotalSales    || 0;
+    const revenue  = r.totalRevenue  || r.TotalRevenue  || 0;
+    const payments = r.totalPayments || r.TotalPayments || 0;
+    const notes    = r.notes         || r.Notes         || '';
+    const filename = `report_${id}_${dateFrom.replace(/\./g,'-')}_${dateTo.replace(/\./g,'-')}`;
+
+    if (format === 'csv') {
+        const rows = [
+            ['Поле', 'Значение'],
+            ['ID отчёта',   id],
+            ['Создан',      created],
+            ['Период',      period],
+            ['Дата с',      dateFrom],
+            ['Дата по',     dateTo],
+            ['Кол-во продаж', sales],
+            ['Выручка (руб)', revenue],
+            ['Оплачено (руб)', payments],
+            ['Задолженность (руб)', revenue - payments],
+            ['Примечание',  notes],
+        ];
+        const csv = rows.map(row => row.map(v => `"${String(v).replace(/"/g,'""')}"`).join(';')).join('\r\n');
+        downloadBlob(csv, filename + '.csv', 'text/csv;charset=utf-8;');
+
+    } else if (format === 'txt') {
+        const line = '─'.repeat(44);
+        const txt = [
+            '  АВТОЛАЙН — ФИНАНСОВЫЙ ОТЧЁТ',
+            line,
+            `  ID отчёта      : ${id}`,
+            `  Создан         : ${created}`,
+            `  Период         : ${period}`,
+            `  Дата с         : ${dateFrom}`,
+            `  Дата по        : ${dateTo}`,
+            line,
+            `  Кол-во продаж  : ${sales}`,
+            `  Выручка        : ${fmt(revenue)} руб.`,
+            `  Оплачено       : ${fmt(payments)} руб.`,
+            `  Задолженность  : ${fmt(revenue - payments)} руб.`,
+            line,
+            notes ? `  Примечание: ${notes}` : '',
+            '',
+            `  Сформировано: ${new Date().toLocaleString('ru-RU')}`,
+        ].filter(l => l !== undefined).join('\r\n');
+        downloadBlob(txt, filename + '.txt', 'text/plain;charset=utf-8;');
+
+    } else if (format === 'xlsx') {
+        const cell = (v, type = 'String') =>
+            `<Cell><Data ss:Type="${type}">${String(v).replace(/&/g,'&amp;').replace(/</g,'&lt;')}</Data></Cell>`;
+
+        const headerRow = `<Row>${cell('Поле')}${cell('Значение')}</Row>`;
+        const dataRows = [
+            ['ID отчёта',          id,                  'Number'],
+            ['Создан',             created,             'String'],
+            ['Период',             period,              'String'],
+            ['Дата с',             dateFrom,            'String'],
+            ['Дата по',            dateTo,              'String'],
+            ['Кол-во продаж',      sales,               'Number'],
+            ['Выручка (руб)',       revenue,             'Number'],
+            ['Оплачено (руб)',      payments,            'Number'],
+            ['Задолженность (руб)', revenue - payments,  'Number'],
+            ['Примечание',         notes,               'String'],
+        ].map(([k, v, t]) => `<Row>${cell(k)}${cell(v, t)}</Row>`).join('\n');
+
+        const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<?mso-application progid="Excel.Sheet"?>
+<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"
+ xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">
+ <Styles>
+  <Style ss:ID="h">
+   <Font ss:Bold="1" ss:Size="11"/>
+   <Interior ss:Color="#C0392B" ss:Pattern="Solid"/>
+   <Font ss:Color="#FFFFFF" ss:Bold="1"/>
+  </Style>
+ </Styles>
+ <Worksheet ss:Name="Отчёт">
+  <Table>
+   <Column ss:Width="180"/>
+   <Column ss:Width="200"/>
+   <Row ss:StyleID="h">
+    ${cell('АВТОЛАЙН — Финансовый отчёт #' + id)}${cell('')}
+   </Row>
+   ${headerRow}
+   ${dataRows}
+  </Table>
+ </Worksheet>
+</Workbook>`;
+        downloadBlob(xml, filename + '.xls', 'application/vnd.ms-excel;charset=utf-8;');
+    }
+
+    showToast(`Отчёт #${id} экспортирован в ${format.toUpperCase()}`);
+}
+
+function downloadBlob(content, filename, mimeType) {
+    const bom  = mimeType.includes('utf-8') ? '\uFEFF' : '';
+    const blob = new Blob([bom + content], { type: mimeType });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href     = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+async function deleteReport(id) {
+    if (!confirm('Удалить отчёт?')) return;
+    await apiFetch(`/reports/${id}`, { method: 'DELETE' });
+    showToast('Отчёт удалён');
+    loadReports();
+}
+
+async function openReportModal() {
+    modalEntity = 'report';
+    editId = null;
+
+    const now          = new Date();
+    const firstOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0,10);
+    const today        = now.toISOString().slice(0,10);
+
+    openModal('Сформировать отчёт', `
+        <div class="field-group"><label>Период <span style="color:#e74c3c">*</span></label>
+            <select id="fRepPeriod" onchange="autoFillDates(this.value)">
+                <option value="2">Месячный</option>
+                <option value="3">Квартальный</option>
+                <option value="4">Годовой</option>
+                <option value="5">Произвольный</option>
+            </select>
+        </div>
+        <div class="field-group"><label>Дата с <span style="color:#e74c3c">*</span></label>
+            <input type="date" id="fRepFrom" value="${firstOfMonth}" />
+        </div>
+        <div class="field-group"><label>Дата по <span style="color:#e74c3c">*</span></label>
+            <input type="date" id="fRepTo" value="${today}" />
+        </div>
+        <div class="field-group"><label>Примечание</label>
+            <input id="fRepNotes" placeholder="Комментарий к отчёту..." />
+        </div>
+    `);
+}
+
+function autoFillDates(period) {
+    const now = new Date();
+    let from;
+    const to = now.toISOString().slice(0,10);
+    if (period == 2) {
+        from = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0,10);
+    } else if (period == 3) {
+        const q = Math.floor(now.getMonth() / 3);
+        from = new Date(now.getFullYear(), q * 3, 1).toISOString().slice(0,10);
+    } else if (period == 4) {
+        from = new Date(now.getFullYear(), 0, 1).toISOString().slice(0,10);
+    } else {
+        return;
+    }
+    document.getElementById('fRepFrom').value = from;
+    document.getElementById('fRepTo').value   = to;
+}
+
+// ========================
+// USERS
+// ========================
+function canEditUser(targetRole) {
+    const tr = targetRole;
+    if (isDirector()) return false;
+    if (isAdmin())    return tr !== 2 && tr !== 5;
+    return false;
+}
+
+function canDeleteUser(targetRole) {
+    const tr = targetRole;
+    if (isDirector()) return tr === 2;
+    if (isAdmin())    return tr !== 2 && tr !== 5;
+    return false;
+}
+
+async function loadUsers() {
+    document.getElementById('usersBody').innerHTML = '<tr><td colspan="7"><div class="loader"></div></td></tr>';
+    const res = await apiFetch('/users');
+    usersCache = await res.json();
+
+    if (!usersCache.length) {
+        document.getElementById('usersBody').innerHTML = '<tr><td colspan="7"><div class="empty">Нет пользователей</div></td></tr>';
+        return;
+    }
+
+    const roleColors = {
+        1: 'rgba(100,100,100,0.3)',
+        2: 'rgba(192,57,43,0.25)',
+        3: 'rgba(41,128,185,0.25)',
+        4: 'rgba(39,174,96,0.25)',
+        5: 'rgba(142,68,173,0.25)',
+    };
+    const roleTextColors = {
+        1: '#aaa',
+        2: 'var(--accent2)',
+        3: '#5dade2',
+        4: '#58d68d',
+        5: '#c39bd3',
+    };
+
+    document.getElementById('usersBody').innerHTML = usersCache.map(u => {
+        const role = u.role || u.Role;
+        const bg   = roleColors[role]     || 'rgba(192,57,43,0.15)';
+        const clr  = roleTextColors[role] || 'var(--accent2)';
+
+        const isProtected = (role === 2 || role === 5);
+        const lockIcon    = `<span title="Защищённая роль" style="color:var(--muted);font-size:16px;cursor:default">🔒</span>`;
+
+        const editBtn   = canEditUser(role)
+            ? `<button class="btn-sm" onclick="openUserModal(${u.id})">Изм.</button>`
+            : '';
+        const deleteBtn = canDeleteUser(role)
+            ? `<button class="btn-sm danger" onclick="deleteUser(${u.id})">Удал.</button>`
+            : '';
+
+        const actions = (editBtn || deleteBtn)
+            ? editBtn + deleteBtn
+            : isProtected ? lockIcon : '—';
+
+        return `<tr>
+            <td>${u.id}</td>
+            <td style="color:var(--text)">${u.name}</td>
+            <td>${u.login}</td>
+            <td>${u.phone || '—'}</td>
+            <td>${u.email || '—'}</td>
+            <td>
+                <span style="background:${bg};color:${clr};font-size:11px;padding:3px 10px;border-radius:4px;font-family:'Barlow Condensed',sans-serif;letter-spacing:1.5px;font-weight:700">
+                    ${role === 2 || role === 5 ? '🔐 ' : ''}${roleLabel(role)}
+                </span>
+            </td>
+            <td>${actions}</td>
+        </tr>`;
+    }).join('');
+}
+
+async function deleteUser(id) {
+    const u    = usersCache.find(x => x.id === id);
+    const role = u?.role || u?.Role;
+
+    if (!canDeleteUser(role)) {
+        showToast('Нет прав для удаления этого пользователя', 'error');
+        return;
+    }
+
+    const label = u?.name || `пользователя #${id}`;
+    if (!confirm(`Удалить ${label}?`)) return;
+
+    const res = await apiFetch(`/users/${id}`, { method: 'DELETE' });
+    if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        showToast(d.message || 'Ошибка удаления', 'error');
+    } else {
+        showToast(`${label} удалён`);
+        loadUsers();
+    }
+}
+
+function openUserModal(id = null) {
+    const user = id ? usersCache.find(u => u.id === id) : null;
+    const role = user?.role || user?.Role;
+
+    if (id && !canEditUser(role)) {
+        showToast('Нет прав для редактирования этого пользователя', 'error');
+        return;
+    }
+
+    modalEntity = 'user';
+    editId = id;
+
+    const roleOptions = [
+        { v: 1, l: 'Пользователь' },
+        { v: 2, l: 'Администратор', hiddenFor: [5] },
+        { v: 3, l: 'Менеджер' },
+        { v: 4, l: 'Бухгалтер' },
+        { v: 5, l: 'Руководитель', hiddenFor: [2, 5] },
+    ].filter(o => !o.hiddenFor?.includes(currentUser.role))
+     .map(o => `<option value="${o.v}" ${role === o.v ? 'selected' : ''}>${o.l}</option>`)
+     .join('');
+
+    openModal(id ? 'Редактировать пользователя' : 'Добавить пользователя', `
+        <div class="field-group"><label>Имя <span style="color:#e74c3c">*</span></label>
+            <input id="fUserName" value="${user?.name || ''}" placeholder="Иван Иванов" />
+        </div>
+        <div class="field-group"><label>Логин <span style="color:#e74c3c">*</span></label>
+            <input id="fUserLogin" value="${user?.login || ''}" placeholder="iivanov" />
+        </div>
+        <div class="field-group"><label>Пароль ${id ? '' : '<span style="color:#e74c3c">*</span>'}</label>
+            <input type="password" id="fUserPassword" placeholder="${id ? 'Оставьте пустым — без изменений' : 'Придумайте пароль'}" />
+        </div>
+        <div class="field-group"><label>Email</label>
+            <input id="fUserEmail" value="${user?.email || ''}" placeholder="mail@example.com" />
+        </div>
+        <div class="field-group"><label>Телефон</label>
+            <input id="fUserPhone" value="${user?.phone || ''}" placeholder="+7 (999) 000-00-00" />
+        </div>
+        <div class="field-group"><label>Роль</label>
+            <select id="fUserRole">${roleOptions}</select>
+        </div>
+    `);
+}
+
+// ========================
+// MODAL SAVE DISPATCHER
+// ========================
+async function saveModal() {
+    clearModalError();
+    try {
+        if      (modalEntity === 'car')         await saveCar();
+        else if (modalEntity === 'sale')         await saveSale();
+        else if (modalEntity === 'application')  await saveApplication();
+        else if (modalEntity === 'payment')      await savePayment();
+        else if (modalEntity === 'report')       await saveReport();
+        else if (modalEntity === 'user')         await saveUser();
+
+        closeModal();
+        showToast('Сохранено успешно');
+
+        const active = document.querySelector('.section.active')?.id?.replace('section-', '');
+        if (active) showSection(active);
+    } catch (e) {
+        // Показываем ошибку внутри модалки, не закрываем её
+        showModalError(e.message);
+    }
+}
+
+// ========================
+// VALIDATION HELPERS
+// ========================
+
+// Собирает все ошибки и подсвечивает поля.
+// fields: массив { id, label, check? }
+// Возвращает строку с ошибками или null если всё ок.
+function validateFields(fields) {
+    const errors = [];
+    fields.forEach(({ id, label, check, customMsg }) => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        const val = el.value?.trim?.() ?? el.value;
+        const fail = check ? !check(val, el) : !val;
+        if (fail) {
+            highlightField(id);
+            errors.push(customMsg || `Заполните поле «${label}»`);
+        }
+    });
+    return errors.length ? errors.join('\n') : null;
+}
+
+// ========================
+// SAVE FUNCTIONS (с валидацией)
+// ========================
+
+async function saveCar() {
+    const brand = document.getElementById('fBrand').value.trim();
+    const year  = document.getElementById('fYear').value;
+    const price = document.getElementById('fPrice').value;
+
+    const err = validateFields([
+        { id: 'fBrand', label: 'Марка' },
+        { id: 'fYear',  label: 'Год выпуска' },
+        {
+            id: 'fPrice', label: 'Цена',
+            check: v => v !== '' && !isNaN(Number(v)) && Number(v) > 0,
+            customMsg: 'Введите корректную цену (больше 0)'
+        },
+    ]);
+    if (err) throw new Error(err);
+
+    const body = {
+        brand,
+        year:  year,
+        price: parseFloat(price),
+        state: document.getElementById('fState').value
+    };
+
+    const res = await apiFetch(editId ? `/cars/${editId}` : '/cars', {
+        method: editId ? 'PUT' : 'POST',
+        body: JSON.stringify(body)
+    });
+    if (!res.ok) throw new Error(await parseApiError(res));
+}
+
+async function saveSale() {
+    const carId     = document.getElementById('fSaleCarId')?.value;
+    const clientId  = document.getElementById('fSaleClientId')?.value;
+    const managerId = document.getElementById('fSaleManagerId')?.value;
+    const date      = document.getElementById('fSaleDate')?.value;
+    const price     = document.getElementById('fSalePrice')?.value;
+    const brand     = document.getElementById('fSaleBrand')?.value?.trim();
+
+    const errors = [];
+
+    if (!carId || carId === '') {
+        highlightField('fSaleCarId');
+        errors.push('Выберите автомобиль');
+    }
+    if (!date) {
+        highlightField('fSaleDate');
+        errors.push('Укажите дату продажи');
+    }
+    if (!clientId || clientId === '') {
+        highlightField('fSaleClientId');
+        errors.push('Выберите клиента');
+    }
+    if (!managerId || managerId === '') {
+        highlightField('fSaleManagerId');
+        errors.push('Выберите менеджера');
+    }
+    if (!price || isNaN(Number(price)) || Number(price) <= 0) {
+        errors.push('Цена автомобиля не определена — выберите автомобиль из списка');
+    }
+
+    if (errors.length) throw new Error(errors.join('\n'));
+
+    const body = {
+        brand,
+        date,
+        price:     parseInt(price),
+        carId:     parseInt(carId),
+        clientId:  parseInt(clientId),
+        managerId: parseInt(managerId)
+    };
+    const res = await apiFetch('/sales', { method: 'POST', body: JSON.stringify(body) });
+    if (!res.ok) throw new Error(await parseApiError(res));
+}
+
+async function saveApplication() {
+    const dateTime = document.getElementById('fAppDate')?.value;
+    const carId    = document.getElementById('fAppCarId')?.value;
+
+    const errors = [];
+    if (!dateTime) {
+        highlightField('fAppDate');
+        errors.push('Укажите дату и время заявки');
+    }
+    if (!carId || carId === '') {
+        highlightField('fAppCarId');
+        errors.push('Выберите автомобиль');
+    }
+    if (errors.length) throw new Error(errors.join('\n'));
+
+    const body = {
+        dateTime,
+        carId: parseInt(carId)
+    };
+    const res = await apiFetch('/applications', { method: 'POST', body: JSON.stringify(body) });
+    if (!res.ok) throw new Error(await parseApiError(res));
+}
+
+async function savePayment() {
+    const saleId    = document.getElementById('fPaySaleId')?.value;
+    const managerId = document.getElementById('fPayManagerId')?.value;
+    const sum       = document.getElementById('fPaySum')?.value;
+    const dateTime  = document.getElementById('fPayDate')?.value;
+
+    const errors = [];
+    if (!saleId || saleId === '') {
+        highlightField('fPaySaleId');
+        errors.push('Выберите продажу');
+    }
+    if (!managerId || managerId === '') {
+        highlightField('fPayManagerId');
+        errors.push('Выберите менеджера');
+    }
+    if (!sum || isNaN(Number(sum)) || Number(sum) <= 0) {
+        errors.push('Сумма платежа не определена — выберите продажу из списка');
+    }
+    if (!dateTime) {
+        highlightField('fPayDate');
+        errors.push('Укажите дату платежа');
+    }
+    if (errors.length) throw new Error(errors.join('\n'));
+
+    const body = {
+        saleId:    parseInt(saleId),
+        managerId: parseInt(managerId),
+        sum:       parseInt(sum),
+        dateTime,
+        note: document.getElementById('fPayNote').value
+    };
+    const res = await apiFetch('/payments', { method: 'POST', body: JSON.stringify(body) });
+    if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        throw new Error(d.message || 'Ошибка сохранения платежа');
+    }
+}
+
+async function saveReport() {
+    const period   = document.getElementById('fRepPeriod')?.value;
+    const dateFrom = document.getElementById('fRepFrom')?.value;
+    const dateTo   = document.getElementById('fRepTo')?.value;
+
+    const errors = [];
+    if (!period) {
+        highlightField('fRepPeriod');
+        errors.push('Выберите период отчёта');
+    }
+    if (!dateFrom) {
+        highlightField('fRepFrom');
+        errors.push('Укажите начальную дату');
+    }
+    if (!dateTo) {
+        highlightField('fRepTo');
+        errors.push('Укажите конечную дату');
+    }
+    if (dateFrom && dateTo && new Date(dateFrom) > new Date(dateTo)) {
+        highlightField('fRepFrom');
+        highlightField('fRepTo');
+        errors.push('Дата начала не может быть позже даты окончания');
+    }
+    if (errors.length) throw new Error(errors.join('\n'));
+
+    // Загружаем продажи и платежи для подсчёта показателей за период
+    const from = new Date(dateFrom);
+    const to   = new Date(dateTo);
+    // dateTo включительно — берём конец дня
+    to.setHours(23, 59, 59, 999);
+
+    let totalSales    = 0;
+    let totalRevenue  = 0;
+    let totalPayments = 0;
+
+    try {
+        const [sRes, pRes] = await Promise.all([apiFetch('/sales'), apiFetch('/payments')]);
+        const sales    = await sRes.json();
+        const payments = await pRes.json();
+
+        // Продажи за период
+        const salesInPeriod = sales.filter(s => {
+            const d = new Date(s.date || s.Date);
+            return d >= from && d <= to;
+        });
+        totalSales   = salesInPeriod.length;
+        totalRevenue = salesInPeriod.reduce((sum, s) => sum + (s.price || s.Price || 0), 0);
+
+        // Платежи за период
+        const paymentsInPeriod = payments.filter(p => {
+            const d = new Date(p.dateTime || p.DateTime);
+            return d >= from && d <= to;
+        });
+        totalPayments = paymentsInPeriod.reduce((sum, p) => sum + (p.sum || p.Sum || 0), 0);
+    } catch (_) {
+        // Если не удалось загрузить — оставляем нули, не блокируем создание отчёта
+    }
+
+    const body = {
+        createdAt:     new Date().toISOString(),
+        period:        parseInt(period),
+        dateFrom,
+        dateTo,
+        accountantId:  currentUser.id,
+        totalSales,
+        totalRevenue,
+        totalPayments,
+        notes:         document.getElementById('fRepNotes').value
+    };
+    const res = await apiFetch('/reports', { method: 'POST', body: JSON.stringify(body) });
+    if (!res.ok) throw new Error(await parseApiError(res));
+}
+
+async function saveUser() {
+    const name  = document.getElementById('fUserName')?.value?.trim();
+    const login = document.getElementById('fUserLogin')?.value?.trim();
+    const pwd   = document.getElementById('fUserPassword')?.value;
+    const email = document.getElementById('fUserEmail')?.value?.trim();
+
+    const errors = [];
+
+    if (!name) {
+        highlightField('fUserName');
+        errors.push('Введите имя пользователя');
+    }
+    if (!login) {
+        highlightField('fUserLogin');
+        errors.push('Введите логин');
+    }
+    if (!editId && !pwd) {
+        highlightField('fUserPassword');
+        errors.push('Придумайте пароль для нового пользователя');
+    }
+    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        highlightField('fUserEmail');
+        errors.push('Введите корректный email (например: mail@example.com)');
+    }
+    if (errors.length) throw new Error(errors.join('\n'));
+
+    const body = {
+        name,
+        login,
+        email,
+        phone: document.getElementById('fUserPhone').value,
+        role:  parseInt(document.getElementById('fUserRole').value)
+    };
+    if (pwd) {
+        body.password = pwd;
+    } else if (!editId) {
+        throw new Error('Введите пароль');
+    } else {
+        const existing = usersCache.find(u => u.id === editId);
+        body.password = existing?.password || '';
+    }
+
+    const res = await apiFetch(editId ? `/users/${editId}` : '/users', {
+        method: editId ? 'PUT' : 'POST',
+        body: JSON.stringify(body)
+    });
+    if (!res.ok) throw new Error(await parseApiError(res));
+}
+
+// ========================
+// MODAL UI
+// ========================
+function openModal(title, fieldsHtml) {
+    document.getElementById('modalTitle').textContent  = title;
+    document.getElementById('modalFields').innerHTML   = fieldsHtml;
+    // Убираем старый блок ошибок при открытии новой модалки
+    const oldErr = document.getElementById('modalError');
+    if (oldErr) oldErr.remove();
+    document.getElementById('modalOverlay').classList.add('open');
+}
+
+function closeModal() {
+    document.getElementById('modalOverlay').classList.remove('open');
+    const oldErr = document.getElementById('modalError');
+    if (oldErr) oldErr.remove();
+}
+
+document.getElementById('modalCancel').addEventListener('click', closeModal);
+document.getElementById('modalSave').addEventListener('click', saveModal);
+document.getElementById('modalOverlay').addEventListener('click', e => {
+    if (e.target === document.getElementById('modalOverlay')) closeModal();
 });
+
+// Wire add buttons
+document.getElementById('addCarBtn').addEventListener('click',         () => openCarModal());
+document.getElementById('addSaleBtn').addEventListener('click',        () => openSaleModal());
+document.getElementById('addApplicationBtn').addEventListener('click', () => openApplicationModal());
+document.getElementById('addPaymentBtn').addEventListener('click',     () => openPaymentModal());
+document.getElementById('addReportBtn').addEventListener('click',      () => openReportModal());
+document.getElementById('addUserBtn').addEventListener('click',        () => openUserModal());
+
+// ========================
+// TOAST
+// ========================
+let toastTimer;
+function showToast(msg, type = 'success') {
+    const t = document.getElementById('toast');
+    t.textContent = msg;
+    t.className   = 'show' + (type === 'error' ? ' error' : '');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => { t.className = ''; }, 3500);
+}
