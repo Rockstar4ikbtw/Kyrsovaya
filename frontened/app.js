@@ -1,4 +1,4 @@
-const API = 'http://localhost:5155/api';
+const API = 'http://localhost:8080/api';
 
 let currentUser = null;
 let modalMode = null;   
@@ -17,7 +17,6 @@ let selectedRole = 1;
 const PROTECTED_ROLES = [2, 3, 4, 5]; // all except User require a code
 const ROLE_CODES = { 2: 'admin123', 3: 'manager123', 4: 'accountant123', 5: 'director123' };
 
-function switchAuthTab(tab) {
     document.getElementById('tabLogin').classList.toggle('active', tab === 'login');
     document.getElementById('tabRegister').classList.toggle('active', tab === 'register');
     document.getElementById('panelLogin').classList.toggle('active', tab === 'login');
