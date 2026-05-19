@@ -23,14 +23,23 @@ builder.Services.AddCors(options =>
         policy
     .WithOrigins(
 
-        "http://127.0.0.1:5500",
-        "http://localhost:5500"
+        "http://127.0.0.1:5500/",
+        "http://localhost:5500/",
+        "http://localhost:3000/",
+        "http://127.0.0.1:3000/"
     )
     .AllowAnyHeader()
     .AllowAnyMethod();
     });
 });
 var app = builder.Build();
+
+using (var scope = app.Services.CreateScope())
+{
+    var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+    db.Database.Migrate();
+}
+
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
